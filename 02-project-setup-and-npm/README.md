@@ -47,7 +47,7 @@ node app.js
 
 This approach works for learning and small examples.
 
-However, real-world applications require:
+However, real-world applications require
 
 * Dependency management
 * Version tracking
