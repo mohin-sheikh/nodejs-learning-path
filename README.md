@@ -91,7 +91,7 @@ Code editor (VS Code recommended)
 Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/nodejs-learning-path.git
+git clone git@github.com:mohin-sheikh/nodejs-learning-path.git
 cd nodejs-learning-path
 ```
 
