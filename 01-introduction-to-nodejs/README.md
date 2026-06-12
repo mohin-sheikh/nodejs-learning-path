@@ -24,7 +24,6 @@ In this session, we will understand what Node.js is, why it was created, where i
 * [Beginner Mistakes](#beginner-mistakes)
 * [Interview Questions](#interview-questions)
 * [Summary](#summary)
-* [Next Session](#next-session)
 
 ---
 
@@ -541,21 +540,5 @@ In this session, you learned
 * What npm is
 * How to create your first Node.js program
 * Common Node.js commands
-
----
-
-# Next Session
-
-In the next session, we will learn:
-
-* Project Initialization
-* package.json
-* npm init
-* npm scripts
-* node_modules
-* package-lock.json
-* Understanding Project Structure
-
-This will be the foundation for every Node.js project you create in the future.
 
 ---
