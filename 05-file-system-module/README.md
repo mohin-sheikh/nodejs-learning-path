@@ -10,7 +10,6 @@
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
 * [Summary](#summary)
-* [Next Session](#next-session)
 
 ---
 
