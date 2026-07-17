@@ -1,25 +1,23 @@
 # Node.js Learning Path
 
-Welcome to the complete Node.js learning documentation
+Welcome to the complete Node.js learning documentation.
 
-This repository contains everything you need to learn Node.js from scratch
+This repository contains everything you need to learn Node.js from scratch.
 
 ---
 
 ## What You Will Learn
 
-```text
-Node.js basics
-Core modules
-Express.js
-REST APIs
-MongoDB
-Authentication
-File uploads
-Error handling
-Testing
-Complete project
-```
+- Node.js basics
+- Core modules
+- Express.js
+- REST APIs
+- MongoDB
+- Authentication
+- File uploads
+- Error handling
+- Testing
+- Complete project
 
 ---
 
@@ -62,59 +60,48 @@ Complete project
 
 ## How to Use
 
-Navigate to any session folder
+Each session is a single markdown file. Open any session file in your code editor.
 
-```bash
-cd 01-introduction-to-nodejs
+Example -
+```
+code 01-introduction-to-nodejs.md
 ```
 
-Read the README.md file
-
-Follow the examples step by step
-
-Write and run the code yourself
+Read the content step by step. Write and run the code yourself.
 
 ---
 
 ## Prerequisites
 
-```text
-Basic JavaScript knowledge
-Computer with Node.js installed
-Code editor (VS Code recommended)
-```
+- Basic JavaScript knowledge
+- Computer with Node.js installed
+- Code editor (VS Code recommended)
 
 ---
 
 ## Installation
 
-Clone the repository
+Clone the repository -
 
-```bash
+```
 git clone git@github.com:mohin-sheikh/nodejs-learning-path.git
 cd nodejs-learning-path
 ```
 
-Each session has its own project
-
-Install dependencies when needed
-
-```bash
-npm install
-```
+Each session has its own code examples. Follow the instructions inside each file.
 
 ---
 
 ## Project Structure
 
-```text
+```
 nodejs-learning-path/
 │
-├── 01-introduction-to-nodejs/
-├── 02-project-setup-and-npm/
-├── 03-how-nodejs-works/
-...
-├── 30-mini-project/
+├── 01-introduction-to-nodejs.md
+├── 02-project-setup-and-npm.md
+├── 03-how-nodejs-works.md
+... (all sessions)
+├── 30-mini-project.md
 │
 └── README.md
 ```
@@ -123,186 +110,150 @@ nodejs-learning-path/
 
 ## What Makes This Different
 
-```text
-Simple language for beginners
-Step by step examples
-No complex jargon
-Real world projects
-Industry best practices
-```
+- Simple language for beginners
+- Step by step examples
+- No complex jargon
+- Real world projects
+- Industry best practices
 
 ---
 
 ## After Completing This Course
 
-You will be able to
+You will be able to -
 
-```text
-Build REST APIs from scratch
-Work with MongoDB
-Implement authentication
-Handle file uploads
-Test your code
-Deploy applications
-Apply for junior backend developer roles
-```
+- Build REST APIs from scratch
+- Work with MongoDB
+- Implement authentication
+- Handle file uploads
+- Test your code
+- Apply for junior backend developer roles
 
 ---
 
 ## Quick Start
 
-Want to see a working API right away
+Want to see a working API right away? Go to Session 30 - Mini Project.
 
-Go to Session 30
+Open the session file -
 
-```bash
-cd 30-mini-project
+```
+code 30-mini-project.md
+```
+
+Follow the setup instructions -
+
+```
 npm install
 npm run dev
 ```
 
-Visit http://localhost:5000
+Then visit http://localhost:5000
 
 ---
 
 ## Requirements to Move Forward
 
-Each session builds on previous ones
+Each session builds on previous ones. Do not skip sessions.
 
-Do not skip sessions
-
-Write every example yourself
-
-Experiment with the code
-
-Break things and fix them
+Write every example yourself. Experiment with the code. Break things and fix them.
 
 ---
 
 ## Getting Help
 
-Each session has
+Each session has -
 
-```text
-Clear explanations
-Code examples
-Practice exercises
-Interview questions
-```
+- Clear explanations
+- Code examples
+- Practice exercises
+- Interview questions
 
-If stuck, review the session again
-
-Search error messages online
-
-Ask in developer communities
-
----
-
-## Folder Navigation
-
-Each session folder contains one README.md file
-
-```text
-01-introduction-to-nodejs/
-└── README.md
-
-02-project-setup-and-npm/
-└── README.md
-```
-
-Open the README.md file in your code editor
-
-Follow along
+If you get stuck, review the session again. Search error messages online. Ask in developer communities.
 
 ---
 
 ## Estimated Time
 
-Complete beginner -> 4 to 6 weeks
-
-With JavaScript knowledge -> 2 to 3 weeks
-
-Learning 1 session per day -> 30 days
+- Complete beginner: 4 to 6 weeks
+- With JavaScript knowledge: 2 to 3 weeks
+- Learning 1 session per day: 30 days
 
 ---
 
 ## Sample Code
 
-Most sessions include complete working code
+Every session includes complete working code. Copy and run -
 
-Copy and run
-
-```bash
+```
 node filename.js
 ```
 
-Modify and see what happens
+Modify the code and see what happens.
 
 ---
 
 ## Tech Stack Covered
 
-```text
-Node.js
-Express.js
-MongoDB
-Mongoose
-JWT
-bcryptjs
-Multer
-Jest
-Supertest
-```
+- Node.js
+- Express.js
+- MongoDB
+- Mongoose
+- JWT
+- bcryptjs
+- Multer
+- Jest
+- Supertest
 
 ---
 
 ## Who Is This For
 
-```text
-Complete beginners
-JavaScript developers moving to backend
-Students learning backend development
-Anyone wanting to build REST APIs
-```
+- Complete beginners
+- JavaScript developers moving to backend
+- Students learning backend development
+- Anyone wanting to build REST APIs
 
 ---
 
 ## Start Here
 
-Open 01-introduction-to-nodejs/README.md
+Open `01-introduction-to-nodejs.md`.
 
-Read it completely
-
-Write the first program
+Read it completely. Write the first program -
 
 ```javascript
 console.log("Hello Node.js");
 ```
 
-Run it
+Run it:
 
-```bash
+```
 node app.js
 ```
 
-Then move to Session 02
+Then move to Session 02.
 
 ---
 
 ## Final Project
 
-Session 30 is a complete Task Management API
+Session 30 is a complete Task Management API. It includes -
 
-Includes
-
-```text
-User registration and login
-Create, read, update, delete tasks
-Profile picture upload
-Password reset
-Task filtering and pagination
-Complete error handling
-Tests
-```
+- User registration and login
+- Create, read, update, delete tasks
+- Profile picture upload
+- Password reset
+- Task filtering and pagination
+- Complete error handling
+- Tests
 
 ---
+
+## Note
+
+All code examples are written for educational purposes. Always use environment variables for sensitive data in production. Follow security best practices when deploying.
+
+---
+
+Happy Learning!
