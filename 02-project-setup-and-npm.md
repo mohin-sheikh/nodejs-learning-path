@@ -605,9 +605,9 @@ Every other script needs `npm run`.
 {
   "scripts": {
     "start": "node index.js",
+    "start:watch": "node --watch index.js",
     "dev": "nodemon index.js",
-    "test": "jest",
-    "test:watch": "jest --watch"
+    "test": "node test.js"
   }
 }
 ```
@@ -616,10 +616,12 @@ Every other script needs `npm run`.
 npm start
 npm test
 npm run dev
-npm run test:watch
+npm run start:watch
 ```
 
-The `:` in `test:watch` is just part of the name. It is a common way to group related scripts.
+The `:` in `start:watch` is just part of the name. It is a common way to group related scripts.
+
+In the Testing session you will see scripts like `test:watch` that follow the same idea.
 
 ---
 
@@ -1073,7 +1075,7 @@ No. It is added to .gitignore. Other developers recreate it by running npm insta
 
 npm install can update package-lock.json while installing.
 
-npm ci deletes node_modules and installs the exact versions from package-lock.json without changing it. It is commonly used in CI/CD pipelines.
+npm ci deletes node_modules and installs the exact versions from package-lock.json without changing it. It is commonly used on servers when deploying an application.
 
 ---
 
