@@ -155,7 +155,8 @@ Example
     "start": "node index.js"
   },
   "author": "John Doe",
-  "license": "ISC"
+  "license": "ISC",
+  "type": "commonjs"
 }
 ```
 
@@ -170,6 +171,7 @@ Explanation
 | scripts     | Custom commands           |
 | author      | Project creator           |
 | license     | Project license           |
+| type        | Module system (commonjs means the project uses require). You will learn this in Session 04 |
 
 Think of package.json as
 
