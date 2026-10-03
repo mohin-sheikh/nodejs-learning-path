@@ -1,19 +1,3 @@
-## Learning Objectives
-
-After completing this session, you will be able to
-
-* Create a Node.js project from scratch
-* Understand the purpose of npm
-* Initialize a project using npm
-* Understand package.json
-* Understand package-lock.json
-* Install third-party packages
-* Understand dependencies and devDependencies
-* Create and run npm scripts
-* Use nodemon during development
-
----
-
 ## Table of Contents
 
 * [Why Do We Need Project Setup?](#why-do-we-need-project-setup)
