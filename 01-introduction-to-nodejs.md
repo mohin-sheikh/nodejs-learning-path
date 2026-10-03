@@ -23,7 +23,6 @@ In this session, we will understand what Node.js is, why it was created, where i
 * [Practice Exercises](#practice-exercises)
 * [Beginner Mistakes](#beginner-mistakes)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -525,20 +524,5 @@ It is used for managing packages and dependencies.
 Yes.
 
 Using Node.js, JavaScript can run outside the browser.
-
----
-
-# Summary
-
-In this session, you learned
-
-* What Node.js is
-* Why Node.js is used
-* Where Node.js is used
-* How to install Node.js
-* How to verify installation
-* What npm is
-* How to create your first Node.js program
-* Common Node.js commands
 
 ---

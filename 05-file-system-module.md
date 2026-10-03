@@ -19,7 +19,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -971,27 +970,5 @@ JSON.parse() converts JSON text into a JavaScript object or array. JSON.stringif
 ### What is a write stream?
 
 A write stream keeps a file open so you can write to it many times efficiently. It is created with fs.createWriteStream() and is commonly used for log files.
-
----
-
-## Summary
-
-In this session, you learned
-
-* What the fs module is
-* How to read files
-* How to create files
-* How to update files
-* How to delete files
-* What "utf8" does
-* How to handle file errors
-* Difference between Sync and Async methods
-* Using fs/promises with async/await
-* Working with folders
-* Reading and writing JSON files
-* Writing with streams
-* Where Node.js looks for files
-
-The File System Module is one of the most commonly used built-in modules in Node.js.
 
 ---

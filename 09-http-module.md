@@ -26,7 +26,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -1010,29 +1009,5 @@ The port is already being used by another program, so the server cannot start on
 ### Why does the browser send a request to /favicon.ico?
 
 Browsers automatically request the small icon shown in the browser tab.
-
----
-
-## Summary
-
-In this session, you learned 
-
-* What HTTP is
-* What a Client is
-* What a Server is
-* How requests and responses work
-* The parts of a URL, localhost and ports
-* HTTP methods and status code ranges
-* How to create an HTTP server
-* req.url, req.method and req.headers
-* res.write(), res.end() and setHeader()
-* Sending plain text and HTML
-* How to create basic routes
-* How to read query strings
-* That the server is an EventEmitter
-* How to serve an HTML file
-* How to test, stop and restart a server
-
-This is the foundation of backend development.
 
 ---

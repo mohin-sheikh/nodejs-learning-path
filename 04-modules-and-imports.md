@@ -18,7 +18,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -912,25 +911,5 @@ No. Every module has its own scope. Variables are private unless they are export
 ### What is the difference between CommonJS and ES Modules?
 
 CommonJS uses require() and module.exports. ES Modules use import and export, and need "type": "module" in package.json.
-
----
-
-## Summary
-
-In this session, you learned
-
-* What a module is
-* Why modules are important
-* How to create modules
-* How to export code with module.exports and exports
-* How to import code with require()
-* Module scope (private variables)
-* Core, local and third-party modules
-* File paths with ./ and ../
-* Requiring a folder with index.js
-* Modules run only once (caching)
-* CommonJS vs ES Modules
-
-These concepts are used in every Node.js application.
 
 ---

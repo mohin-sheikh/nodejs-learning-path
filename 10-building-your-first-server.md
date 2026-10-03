@@ -22,7 +22,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -970,27 +969,5 @@ JSON, for example { "error": "Route not found" }, so the client always receives 
 ### Why use a routes object instead of if/else?
 
 It is shorter, easier to read, and adding a route only needs one new line. It is also similar to how Express organizes routes.
-
----
-
-## Summary
-
-In this session, you learned
-
-* How to set up a server project with npm and auto restart
-* How to create a multi-route server
-* How to handle URLs
-* How to send JSON responses
-* How to use status codes (200, 201, 400, 404, 500)
-* How to handle invalid routes
-* How to test status codes with DevTools and curl
-* How to write a sendJSON helper
-* How to check the method and the path
-* How to filter data with query strings
-* How to load data from a JSON file
-* How to handle server errors with 500
-* How to organize routes with an object
-
-You have now built your first small backend application using only Node.js.
 
 ---

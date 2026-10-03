@@ -27,7 +27,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Questions](#practice-questions)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -1257,30 +1256,5 @@ async lets you use await inside a function. await waits for a Promise to finish 
 ### How can you block the Event Loop?
 
 By running long synchronous work, such as long loops or heavy calculations. While that code runs, nothing else can.
-
----
-
-## Summary
-
-In this session, you learned
-
-* Single Threaded Architecture
-* Synchronous Programming
-* Asynchronous Programming
-* Blocking Operations
-* Non-Blocking Operations
-* Call Stack
-* Callback Queue
-* Event Loop
-* Callbacks and Error-First Callbacks
-* Promises
-* async and await
-* Microtask Queue
-* Node.js Architecture (V8 and libuv)
-* Thread Pool
-* Blocking the Event Loop
-* Why Node.js is Fast
-
-These concepts are the foundation of everything you will build in Node.js.
 
 ---

@@ -21,7 +21,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -956,28 +955,5 @@ process (exit), file streams (data, end, finish), HTTP requests (data, end) and 
 ### How do you create a custom class that emits events?
 
 Create a class that extends EventEmitter, then call this.emit() inside its methods.
-
----
-
-## Summary
-
-In this session, you learned
-
-* What events are
-* Event-driven programming
-* EventEmitter
-* Listening to events
-* Triggering events
-* Passing data with events
-* Multiple event listeners
-* once() and off()
-* emit() runs listeners immediately
-* The special error event
-* Built-in objects that emit events
-* Reading files in chunks with streams
-* Creating your own class with extends
-* Sharing one emitter across files
-
-Events are one of the core concepts of Node.js and are used extensively in real-world applications.
 
 ---

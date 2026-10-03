@@ -20,7 +20,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -1117,23 +1116,3 @@ A request is idempotent if sending it many times has the same effect as sending 
 Data stored in a variable is lost. It needs a file or a database to survive a restart.
 
 ---
-
-## Summary
-
-In this session, you learned
-
-* What CRUD operations are
-* How to create a REST API and name its routes
-* GET to retrieve students
-* POST to add new students
-* PUT to update students
-* DELETE to remove students
-* How to read the request body in chunks
-* find, findIndex, push, splice and the spread operator
-* How to avoid duplicate ids
-* How to stop bad JSON from crashing the server
-* How to use an array as a database, and why data is lost on restart
-* HTTP status codes including 400
-* How to test your API with Postman, curl and fetch()
-
-You have built your first complete backend API

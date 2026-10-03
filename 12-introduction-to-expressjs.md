@@ -29,7 +29,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -1398,30 +1397,5 @@ Hosting services choose the port and pass it in the PORT environment variable. O
 ### What does "Cannot set headers after they are sent to the client" mean
 
 The code tried to send a second response for the same request. Use return when sending an early response
-
----
-
-## Summary
-
-In this session, you learned
-
-* What Express.js is
-* Why Express is better than the HTTP module
-* How to install Express
-* How Express matches a request to a route
-* How to create routes in Express
-* The most useful req and res properties
-* How to send JSON responses and set status codes
-* How to handle GET, POST, PUT, DELETE requests
-* How to use req.body, req.params and req.query
-* What Express handles automatically (bad JSON, 404, errors)
-* How to send your own JSON 404
-* How to send an HTML page and redirect
-* How to filter with query parameters
-* How to choose the port with process.env.PORT
-* How to build a small random quote API
-* The differences between Express 4 and Express 5
-
-You have rebuilt your student API with cleaner code
 
 ---

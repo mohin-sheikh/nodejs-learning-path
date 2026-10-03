@@ -21,7 +21,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -1127,28 +1126,5 @@ The client sends page and limit. The server skips (page - 1) * limit items and r
 ### Why does route order matter
 
 Express uses the first route that matches. A route with a parameter like /students/:id would catch /students/new if it came first
-
----
-
-## Summary
-
-In this session, you learned
-
-* What routing is
-* How to create basic routes
-* How Express matches URLs (case, trailing slash, method)
-* How to use route parameters with :
-* How to use multiple parameters
-* How to make parameters optional with Express 5 syntax
-* How to use query parameters with ?
-* How to filter, sort and paginate with query parameters
-* How to handle several methods on one URL, and app.route()
-* How to organize routes into separate files with express.Router()
-* That router paths are relative to the mount path
-* How to use an /api prefix
-* The importance of route order
-* The Express 5 route syntax changes
-
-You can now build organized and clean Express applications
 
 ---

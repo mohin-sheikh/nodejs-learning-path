@@ -23,7 +23,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -1110,28 +1109,5 @@ A function that takes settings and returns a middleware, like requireRole("admin
 ### Why does middleware order matter
 
 Express runs middleware from top to bottom. Body parsers must come before routes, and the 404 and error handlers must come last
-
----
-
-## Summary
-
-In this session, you learned
-
-* What middleware is
-* How middleware works with next()
-* The three choices: next(), respond, or next(err)
-* Application level, path and route level middleware
-* Why middleware order matters
-* Built-in middleware: express.json(), express.urlencoded(), express.static()
-* Third party middleware: morgan, cors, helmet, express-rate-limit
-* How to create custom middleware
-* How to measure response time with res.on("finish")
-* How to add data to req
-* Authentication middleware and middleware factories
-* How to use multiple middleware functions
-* The difference between global and specific middleware
-* Error-handling middleware
-
-Middleware is one of the most important concepts in Express
 
 ---

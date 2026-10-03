@@ -19,7 +19,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -904,26 +903,5 @@ It stops the program immediately with exit code 1, which means the program ended
 ### What is os.EOL?
 
 The end-of-line character for the current system: \r\n on Windows and \n on macOS and Linux.
-
----
-
-## Summary
-
-In this session, you learned 
-
-* What the OS Module is
-* How to get platform information
-* How to get architecture information
-* How to get host name information
-* How to get memory information
-* How to convert bytes to GB
-* How to get CPU information
-* More OS methods like uptime, homedir and EOL
-* What the process object is
-* The difference between os and process
-* How to read command line arguments
-* How to stop a program with exit codes
-
-The OS Module helps applications understand the environment in which they are running.
 
 ---

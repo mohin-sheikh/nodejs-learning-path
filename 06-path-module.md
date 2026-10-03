@@ -17,7 +17,6 @@
 * [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -773,25 +772,5 @@ A relative path depends on the folder where you run node. A path built from __di
 ### Why not build paths with string concatenation?
 
 Windows uses `\` and macOS/Linux use `/`. path.join() picks the right separator automatically, so the code works on every system.
-
----
-
-## Summary
-
-In this session, you learned 
-
-* What the Path Module is
-* How to create paths
-* How to get file names
-* How to get file extensions
-* How to get directory names
-* How to extract path information
-* Why Windows and macOS/Linux paths are different
-* What __dirname and __filename are
-* How to make file paths work from any folder
-* The difference between path.join() and path.resolve()
-* How to check and rename uploaded files
-
-The Path Module is commonly used together with the File System Module.
 
 ---
