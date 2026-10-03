@@ -15,7 +15,6 @@
 * [Project Structure After Setup](#project-structure-after-setup)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -607,21 +606,5 @@ DevDependencies are required only during development.
 ### What does npm init -y do?
 
 It creates package.json with default values.
-
----
-
-## Summary
-
-In this session, you learned
-
-* Why project setup is important
-* What npm is
-* How to initialize a Node.js project
-* How package.json works
-* How package-lock.json works
-* How to install packages
-* What node_modules contains
-* How npm scripts work
-* How to use nodemon
 
 ---
