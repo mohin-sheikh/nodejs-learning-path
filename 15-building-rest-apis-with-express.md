@@ -746,6 +746,14 @@ Create a global error handler (Session 14). Add it after all routes.
 ```javascript
 // This catches all errors
 app.use((err, req, res, next) => {
+  // express.json() could not read the body
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      success: false,
+      message: "Request body is not valid JSON"
+    });
+  }
+
   console.error(err.stack);
 
   res.status(500).json({
@@ -775,6 +783,8 @@ Response
 ![An error anywhere goes to the global error handler, which sends clean JSON](images/15-building-rest-apis-with-express/global-error.gif)
 
 Use try / catch only when you want to handle a specific error yourself, for example to send a better message.
+
+Why the `entity.parse.failed` check? Without your own handler, Express answers bad JSON with 400 by itself (Session 12). Once you add a handler, every error comes to you, so bad JSON would become a 500. The check keeps it a 400, because the mistake is in the request, not the server.
 
 `err.stack` is printed in the terminal for you to debug. The client only gets a simple message, never the stack. A stack shows file paths and code that attackers should not see.
 
@@ -974,6 +984,14 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
+  // express.json() could not read the body
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      success: false,
+      message: "Request body is not valid JSON"
+    });
+  }
+
   console.error(err.stack);
 
   res.status(500).json({
