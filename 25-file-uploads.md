@@ -4,18 +4,22 @@
 * [What is Multer](#what-is-multer)
 * [Installing Multer](#installing-multer)
 * [Basic File Upload](#basic-file-upload)
-* [Single File Upload](#single-file-upload)
-* [Multiple File Upload](#multiple-file-upload)
-* [File Validation](#file-validation)
-* [File Size Limits](#file-size-limits)
-* [File Type Validation](#file-type-validation)
+* [What is in req.file](#what-is-in-reqfile)
+* [Never Trust the File Name](#never-trust-the-file-name)
 * [Custom File Names](#custom-file-names)
-* [Serving Static Files](#serving-static-files)
+* [File Type Validation](#file-type-validation)
+* [Never Trust the File Type](#never-trust-the-file-type)
+* [File Size Limits](#file-size-limits)
+* [Multiple File Upload](#multiple-file-upload)
+* [Serving Uploaded Files](#serving-uploaded-files)
 * [Error Handling for Uploads](#error-handling-for-uploads)
+* [Saving the File in the Database](#saving-the-file-in-the-database)
 * [Complete File Upload API](#complete-file-upload-api)
+* [Testing File Upload](#testing-file-upload)
+* [Disk or Cloud Storage](#disk-or-cloud-storage)
+* [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -25,63 +29,69 @@ File upload allows users to send files to your server
 
 Examples of file upload
 
-```text
-Profile picture
-Document upload
-Image gallery
-Resume submission
-Video upload
-```
+* Profile picture
+* Document upload
+* Image gallery
+* Resume submission
 
 How file upload works
 
+1. The user picks a file on their computer or phone
+2. The browser sends the file inside a request
+3. The server receives it and saves it to disk (or cloud storage)
+4. The server saves the file's address in the database
+5. The server answers with the file's URL
+
+![The file travels from the phone to the server, is saved, and its URL is returned](images/25-file-uploads/upload-flow.gif)
+
+A file cannot be sent as JSON. JSON is text, and a picture is binary data. Files use a different body format: **multipart/form-data**
+
+| Body type             | Content-Type                         | Used for                    | Read in Express by       |
+| --------------------- | ------------------------------------ | --------------------------- | ------------------------ |
+| JSON                  | `application/json`                   | Normal API data             | `express.json()`         |
+| Form                  | `application/x-www-form-urlencoded`  | Simple HTML forms (Session 21) | `express.urlencoded()` |
+| Multipart             | `multipart/form-data`                | Forms with files            | Multer                   |
+
+"Multipart" means the body has several parts, one per field, separated by a random line called the **boundary**. This is a real request body with a text field and a file (made with Node.js's `FormData`)
+
 ```text
-User selects file on their computer
-Browser sends file to server
-Server receives file
-Server saves file to disk or database
-Server sends response back
+Content-Type: multipart/form-data; boundary=----formdata-undici-066756860306
+
+------formdata-undici-066756860306
+Content-Disposition: form-data; name="name"
+
+Sara
+------formdata-undici-066756860306
+Content-Disposition: form-data; name="avatar"; filename="cat.png"
+Content-Type: image/png
+
+(the bytes of the picture)
+------formdata-undici-066756860306--
 ```
 
-File upload uses multipart/form-data
-
-Different from regular JSON
-
-```text
-JSON -> application/json
-File -> multipart/form-data
-```
+Each part says its field `name`. A file part also says its `filename` and its `Content-Type`. Remember this: **both are written by the client**, so they can be anything. You will see why that matters.
 
 ---
 
 ## What is Multer
 
-Multer is a middleware for handling file uploads
+Multer is a middleware for handling file uploads in Express
 
-It processes multipart/form-data
+It reads multipart/form-data bodies (Session 14 middleware)
 
-Why use Multer
+| Multer does                                   | Result                       |
+| --------------------------------------------- | ---------------------------- |
+| Splits the body into its parts                | -                            |
+| Saves each file to disk (or keeps it in memory) | A file in your uploads folder |
+| Gives you information about each file         | `req.file` or `req.files`    |
+| Puts the text fields in `req.body`            | `req.body.name`              |
+| Checks limits (size, number of files)         | A `MulterError` if a limit is broken |
 
-```text
-Handles file uploads easily
-Saves files to disk or memory
-Provides file information
-Validates file types and sizes
-Renames files automatically
-```
+Think of Multer like the post room of a company
 
-Without Multer, handling file uploads is very complex
-
-Multer makes it simple
-
-Think of Multer like a mail sorter
-
-```text
-Files come in
-Multer sorts them
-Multer gives you access to each file
-Multer saves them where you want
-```
+* Packages (files) and letters (text fields) arrive in one big delivery
+* The post room opens it, stores each package on a shelf, and writes a label
+* You get the labels (`req.file`), not the packages themselves
 
 ---
 
@@ -101,748 +111,933 @@ Install packages
 npm install express multer
 ```
 
-Create uploads folder
-
-```bash
-mkdir uploads
-```
-
-This folder will store uploaded files
-
-Create server.js file
+This session uses multer 2 (version 2.4.0 when we tested), which works with Express 5.
 
 ---
 
 ## Basic File Upload
 
-Basic setup with Multer
+The simplest possible upload
+
+server.js
 
 ```javascript
 const express = require("express");
 const multer = require("multer");
-const path = require("path");
 
 const app = express();
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
+// Save uploaded files in the folder "uploads"
+const upload = multer({ dest: "uploads/" });
+
+// "avatar" is the name of the form field that holds the file
+app.post("/upload", upload.single("avatar"), (req, res) => {
+  console.log(req.file);
+  console.log(req.body);
+
+  res.json({ success: true, file: req.file });
+});
+
+app.listen(3000, (err) => {
+  if (err) {
+    console.log("Could not start server:", err.message);
+    return;
   }
-});
 
-// Create upload middleware
-const upload = multer({ storage: storage });
-
-// Upload route
-app.post("/upload", upload.single("file"), (req, res) => {
-  res.json({
-    success: true,
-    message: "File uploaded successfully",
-    file: req.file
-  });
-});
-
-// Start server
-app.listen(3000, () => {
   console.log("Server running on port 3000");
 });
 ```
 
-Test with curl
+| Code                          | Meaning                                                  |
+| ----------------------------- | -------------------------------------------------------- |
+| `multer({ dest: "uploads/" })` | Create an upload middleware that saves files in uploads/ (Multer creates the folder) |
+| `upload.single("avatar")`     | Expect **one** file in the form field named `avatar`     |
+| Before the handler            | Multer runs first, then your handler sees `req.file`     |
+
+Test with curl (macOS, Linux, Git Bash, and Windows Command Prompt)
 
 ```bash
-curl -X POST http://localhost:3000/upload \
-  -F "file=@/path/to/your/file.jpg"
+curl -X POST http://localhost:3000/upload -F "avatar=@cat.png" -F "name=Sara"
 ```
+
+`-F` sends a multipart form. `avatar=@cat.png` means "the field avatar contains the file cat.png" (the `@` means "read this file"). In Windows PowerShell, `curl` is a different command; type `curl.exe` instead.
 
 ---
 
-## Single File Upload
+## What is in req.file
 
-Upload one file at a time
-
-Use upload.single("fieldName")
-
-```javascript
-const express = require("express");
-const multer = require("multer");
-const path = require("path");
-
-const app = express();
-
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    // Use original name
-    cb(null, file.originalname);
-  }
-});
-
-const upload = multer({ storage: storage });
-
-// Single file upload
-app.post("/upload/profile", upload.single("profileImage"), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No file uploaded"
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: "Profile image uploaded",
-      file: {
-        name: req.file.filename,
-        size: req.file.size,
-        type: req.file.mimetype,
-        path: req.file.path
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-app.listen(3000);
-```
-
-Request format
+The terminal shows (tested)
 
 ```text
-Field name must be "profileImage"
-Content-Type must be multipart/form-data
+{
+  fieldname: 'avatar',
+  originalname: 'cat.png',
+  encoding: '7bit',
+  mimetype: 'image/png',
+  path: 'uploads\\cf93525162fdd5d1c13d6823f1b2cc3a',
+  destination: 'uploads/',
+  filename: 'cf93525162fdd5d1c13d6823f1b2cc3a',
+  size: 70
+}
+[Object: null prototype] { name: 'Sara' }
 ```
+
+![Multer saves the file and gives you a label with its details](images/25-file-uploads/req-file.gif)
+
+| Property       | Meaning                                         | Who decided it      |
+| -------------- | ----------------------------------------------- | ------------------- |
+| `fieldname`    | The form field name                             | Client              |
+| `originalname` | The file name on the user's computer            | **Client**          |
+| `mimetype`     | The type, like `image/png`                      | **Client**          |
+| `size`         | Size in bytes                                   | Multer (measured)   |
+| `destination`  | The folder                                      | You                 |
+| `filename`     | The name on your disk                           | You (or random)     |
+| `path`         | Folder + file name                              | Multer              |
+
+Things to notice
+
+* With only `dest`, Multer gives a random name **without an extension**. Safe, but the file does not open by double-clicking. The next sections fix this.
+* `path` uses `\\` on Windows and `/` on macOS and Linux (Session 06). Never build a URL from `req.file.path`.
+* `req.body` holds the text fields. `[Object: null prototype]` is just a plain object without the usual extras; `req.body.name` works normally.
+* If no file was sent, `req.file` is `undefined`, and the request still succeeds. Always check it.
 
 ---
 
-## Multiple File Upload
+## Never Trust the File Name
 
-Upload multiple files at once
-
-Use upload.array("fieldName", maxCount)
+Many tutorials save files with the user's own file name
 
 ```javascript
-// Multiple files with same field name
-app.post("/upload/gallery", upload.array("images", 5), (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No files uploaded"
-      });
-    }
-    
-    const files = req.files.map(file => ({
-      name: file.filename,
-      size: file.size,
-      type: file.mimetype
-    }));
-    
-    res.json({
-      success: true,
-      message: `${req.files.length} files uploaded`,
-      files: files
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// Multiple files with different field names
-app.post("/upload/documents", upload.fields([
-  { name: "resume", maxCount: 1 },
-  { name: "photo", maxCount: 1 },
-  { name: "certificates", maxCount: 5 }
-]), (req, res) => {
-  res.json({
-    success: true,
-    resume: req.files["resume"],
-    photo: req.files["photo"],
-    certificates: req.files["certificates"]
-  });
-});
+filename: (req, file, cb) => {
+  cb(null, file.originalname); // dangerous
+}
 ```
 
----
+We tested what goes wrong
 
-## File Validation
+| Upload                             | Result                                                       |
+| ---------------------------------- | ------------------------------------------------------------ |
+| Two users both upload `photo.png`  | The second file **overwrites** the first. User 1 now shows user 2's photo |
+| A file named `evil.html`           | Saved as `evil.html`, and served as a web page (see [Never Trust the File Type](#never-trust-the-file-type)) |
+| A name with `../` in it            | Multer removed the `../` part, so the file stayed in uploads (good) |
+| Names with spaces, `#`, emoji      | Ugly or broken URLs                                          |
 
-Validate files before saving
+![Two users upload photo.png and the second overwrites the first](images/25-file-uploads/overwrite.gif)
 
-Check file type, size, etc.
-
-```javascript
-const fileFilter = (req, file, cb) => {
-  // Allowed file types
-  const allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/gif"];
-  
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true); // Accept file
-  } else {
-    cb(new Error("Invalid file type. Only images are allowed"), false);
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 1024 * 1024 * 5 // 5MB limit
-  }
-});
-```
-
-Complete validation example
-
-```javascript
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  }
-});
-
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = ["image/jpeg", "image/png", "image/jpg"];
-  
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only JPEG and PNG images are allowed"), false);
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 1024 * 1024 * 2 // 2MB
-  }
-});
-
-app.post("/upload/avatar", upload.single("avatar"), (req, res) => {
-  res.json({
-    success: true,
-    message: "Avatar uploaded",
-    file: req.file
-  });
-});
-```
-
----
-
-## File Size Limits
-
-Set limits on file sizes
-
-```javascript
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 1024 * 1024 * 5, // 5MB
-    files: 5 // Max number of files
-  }
-});
-
-// Different limits for different routes
-const profileUpload = multer({
-  storage: storage,
-  limits: { fileSize: 1024 * 1024 * 1 } // 1MB for profile
-});
-
-const videoUpload = multer({
-  storage: storage,
-  limits: { fileSize: 1024 * 1024 * 100 } // 100MB for videos
-});
-
-app.post("/upload/profile", profileUpload.single("photo"), handler);
-app.post("/upload/video", videoUpload.single("video"), handler);
-```
-
----
-
-## File Type Validation
-
-Check file types by extension and mime type
-
-```javascript
-const allowedFileTypes = {
-  image: ["image/jpeg", "image/png", "image/gif"],
-  document: ["application/pdf", "application/msword"],
-  video: ["video/mp4", "video/mpeg"]
-};
-
-const fileFilter = (req, file, cb) => {
-  // Check by mimetype
-  if (file.mimetype.startsWith("image/")) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only images are allowed"), false);
-  }
-};
-
-// Check by extension
-const fileFilterByExtension = (req, file, cb) => {
-  const ext = path.extname(file.originalname).toLowerCase();
-  
-  if (ext === ".jpg" || ext === ".jpeg" || ext === ".png") {
-    cb(null, true);
-  } else {
-    cb(new Error("Only .jpg, .jpeg, .png files are allowed"), false);
-  }
-};
-```
+The rule: **you** choose the name and the extension. Keep `originalname` only as information, if you need it at all.
 
 ---
 
 ## Custom File Names
 
-Generate custom names for uploaded files
+`multer.diskStorage()` lets you choose the folder and the name
 
 ```javascript
+const multer = require("multer");
+const path = require("path");
+const crypto = require("crypto");
+const fs = require("fs");
+
+// Where avatars are saved (Session 06: build paths from __dirname)
+const AVATAR_DIR = path.join(__dirname, "..", "uploads", "avatars");
+fs.mkdirSync(AVATAR_DIR, { recursive: true });
+
+// Allowed types. The extension comes from THIS list, never from the user's file name
+const IMAGE_TYPES = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp"
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/");
+    cb(null, AVATAR_DIR);
   },
   filename: (req, file, cb) => {
-    // Method 1: Use timestamp
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-    
-    // Method 2: Use user id
-    // const userId = req.user.id;
-    // cb(null, userId + "-" + file.originalname);
-    
-    // Method 3: Use original name with timestamp
-    // const name = file.originalname.split(".")[0];
-    // const ext = path.extname(file.originalname);
-    // cb(null, name + "-" + Date.now() + ext);
-  }
-});
-
-// Create folders based on file type
-const dynamicStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    let folder = "uploads/";
-    
-    if (file.mimetype.startsWith("image/")) {
-      folder += "images/";
-    } else if (file.mimetype.startsWith("video/")) {
-      folder += "videos/";
-    } else {
-      folder += "documents/";
-    }
-    
-    cb(null, folder);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
+    // A random, unique name: no overwrites, no strange characters
+    cb(null, crypto.randomUUID() + IMAGE_TYPES[file.mimetype]);
   }
 });
 ```
 
----
+| Code                               | Meaning                                                 |
+| ---------------------------------- | ------------------------------------------------------- |
+| `destination`, `filename`          | Functions Multer calls for each file                    |
+| `cb(null, value)`                  | A callback: first argument is an error (`null` = none), second is the answer (Session 05 style) |
+| `fs.mkdirSync(..., { recursive: true })` | With diskStorage you must create the folder yourself (Session 05) |
+| `crypto.randomUUID()`              | A random id like `7f25e53d-85c3-4fd7-9ca1-0cfff6757958`. Two uploads never get the same name |
+| `IMAGE_TYPES[file.mimetype]`       | The extension comes from our list, so a file can never be saved as `.html` or `.js` |
 
-## Serving Static Files
-
-Make uploaded files accessible to users
-
-```javascript
-const express = require("express");
-const path = require("path");
-
-const app = express();
-
-// Serve static files from uploads folder
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-// Now users can access files via URL
-// http://localhost:3000/uploads/image.jpg
-```
-
-Example response with file URL
-
-```javascript
-app.post("/upload", upload.single("file"), (req, res) => {
-  const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
-  
-  res.json({
-    success: true,
-    url: fileUrl,
-    file: req.file
-  });
-});
-```
+Saved files now look like `7f25e53d-85c3-4fd7-9ca1-0cfff6757958.png`.
 
 ---
 
-## Error Handling for Uploads
+## File Type Validation
 
-Handle Multer errors properly
+`fileFilter` decides for each file: accept or reject
 
 ```javascript
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: { fileSize: 1024 * 1024 * 5 }
-});
-
-// Error handling middleware for Multer
-app.post("/upload", (req, res) => {
-  upload.single("file")(req, res, (err) => {
-    if (err instanceof multer.MulterError) {
-      // Multer specific errors
-      if (err.code === "FILE_TOO_LARGE") {
-        return res.status(400).json({
-          success: false,
-          message: "File too large. Max size is 5MB"
-        });
-      }
-      if (err.code === "LIMIT_FILE_COUNT") {
-        return res.status(400).json({
-          success: false,
-          message: "Too many files"
-        });
-      }
-    }
-    
-    if (err) {
-      return res.status(400).json({
-        success: false,
-        message: err.message
-      });
-    }
-    
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No file uploaded"
-      });
-    }
-    
-    res.json({
-      success: true,
-      file: req.file
-    });
-  });
-});
+const fileFilter = (req, file, cb) => {
+  if (IMAGE_TYPES[file.mimetype]) {
+    cb(null, true); // accept
+  } else {
+    cb(new AppError("Only JPEG, PNG and WEBP images are allowed", 400), false); // reject
+  }
+};
 ```
+
+| Call                             | Result (tested)                                              |
+| -------------------------------- | ------------------------------------------------------------ |
+| `cb(null, true)`                 | The file is saved                                            |
+| `cb(new AppError(...), false)`   | The whole request fails with your error                      |
+| `cb(null, false)`                | The file is **silently skipped**. The request still succeeds, `req.file` is just missing |
+
+Use an `AppError` (Session 24), not `new Error(...)`. A plain Error has no status code and no `isOperational`, so the error middleware would answer 500 "Something went wrong" in production instead of a helpful 400.
+
+`fileFilter` runs **before** the file is saved, so rejected files never touch your disk.
 
 ---
 
-## Complete File Upload API
+## Never Trust the File Type
+
+`file.mimetype` comes from the `Content-Type` line the **client** wrote in the request. Anyone can write `image/png` for any file.
+
+We uploaded a file named `evil.html`, containing `<script>alert(document.cookie)</script>`, with the type `image/png`, to the tutorial-style code (user's file name + mimetype check)
+
+| Step                                         | Result                                   |
+| -------------------------------------------- | ---------------------------------------- |
+| fileFilter checks `file.mimetype`            | `image/png` → accepted                   |
+| Saved as                                     | `uploads/evil.html`                      |
+| Someone opens `/uploads/evil.html`           | Served as `text/html`, the script **runs** |
+
+![An HTML file pretends to be a PNG, gets through the type check, and runs in the browser](images/25-file-uploads/fake-image.gif)
+
+That is stored XSS (Session 21): anyone who opens the link runs the attacker's JavaScript on your domain.
+
+Three layers stop it
+
+| Layer                                           | Stops                                               |
+| ----------------------------------------------- | --------------------------------------------------- |
+| Extension from our MIME list, not the file name | The file is saved as `.png`, so it is served as `image/png`, never as a page |
+| `X-Content-Type-Options: nosniff` on uploads    | The browser trusts the type we send and never guesses ("sniffs") it |
+| Check the file's first bytes                    | A file that is not really an image is deleted       |
+
+The first bytes of a file reveal its real type. They are called **magic numbers** or the file signature
+
+utils/checkImage.js
+
+```javascript
+const fs = require("fs/promises");
+
+// Every real image file starts with the same few bytes ("magic numbers")
+const SIGNATURES = {
+  "image/png": "89504e47", // ‰PNG
+  "image/jpeg": "ffd8ff",
+  "image/webp": "52494646" // RIFF
+};
+
+// Is the saved file really the type the client said?
+async function isRealImage(file) {
+  const data = await fs.readFile(file.path);
+  const firstBytes = data.toString("hex", 0, 4);
+  return firstBytes.startsWith(SIGNATURES[file.mimetype]);
+}
+
+module.exports = { isRealImage };
+```
+
+`data.toString("hex", 0, 4)` turns the first 4 bytes of the Buffer (Session 05) into hex text. Every PNG starts with `89 50 4e 47`, every JPEG with `ff d8 ff`. The text `<script>` starts with `3c 73 63 72`, so it fails.
+
+---
+
+## File Size Limits
+
+Without a limit, someone can upload a 10 GB file and fill your disk
+
+```javascript
+const avatarUpload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2 MB
+    files: 1
+  }
+});
+```
+
+| Limit        | Meaning                              | Error code when broken |
+| ------------ | ------------------------------------ | ---------------------- |
+| `fileSize`   | Maximum bytes per file               | `LIMIT_FILE_SIZE`      |
+| `files`      | Maximum number of files per request  | `LIMIT_FILE_COUNT`     |
+| `fields`     | Maximum number of text fields        | `LIMIT_FIELD_COUNT`    |
+
+`2 * 1024 * 1024` is 2 MB: 1024 bytes = 1 KB, 1024 KB = 1 MB.
+
+Multer stops reading as soon as the limit is passed, and deletes the part that was already written. We tested a 3 MB upload against a 2 MB limit: `MulterError: File too large`, code `LIMIT_FILE_SIZE`, and no file was left in the folder.
+
+Different routes can have different limits: just create a second `multer({...})` with other limits, for example 100 MB for videos.
+
+---
+
+## Multiple File Upload
+
+| Method                                  | Use                                   | Files in             |
+| --------------------------------------- | ------------------------------------- | -------------------- |
+| `upload.single("avatar")`               | One file in one field                 | `req.file`           |
+| `upload.array("photos", 5)`             | Up to 5 files in the same field       | `req.files` (array)  |
+| `upload.fields([{ name, maxCount }, ...])` | Different fields                   | `req.files.photo[0]`, `req.files.certificates` |
+
+gallery.js
 
 ```javascript
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
+const crypto = require("crypto");
 const fs = require("fs");
 
 const app = express();
 
-// Create uploads folder if it doesn't exist
-const uploadDir = "uploads";
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
+const GALLERY_DIR = path.join(__dirname, "uploads", "gallery");
+fs.mkdirSync(GALLERY_DIR, { recursive: true });
 
-// Configure storage
+const IMAGE_TYPES = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, GALLERY_DIR),
+    filename: (req, file, cb) => cb(null, crypto.randomUUID() + IMAGE_TYPES[file.mimetype])
+  }),
+  fileFilter: (req, file, cb) => cb(null, Boolean(IMAGE_TYPES[file.mimetype])),
+  limits: { fileSize: 2 * 1024 * 1024 }
+});
+
+// Up to 5 files in the field "photos"
+app.post("/gallery", upload.array("photos", 5), (req, res) => {
+  res.json({
+    count: req.files.length,
+    title: req.body.title, // text fields arrive in req.body
+    files: req.files.map((f) => ({ original: f.originalname, saved: f.filename, size: f.size }))
+  });
+});
+
+// Different fields in one form
+app.post("/application", upload.fields([
+  { name: "photo", maxCount: 1 },
+  { name: "certificates", maxCount: 3 }
+]), (req, res) => {
+  res.json({
+    photo: req.files.photo ? req.files.photo[0].filename : null,
+    certificates: (req.files.certificates || []).length
+  });
+});
+
+app.use((err, req, res, next) => {
+  res.status(400).json({ code: err.code, message: err.message });
+});
+
+module.exports = app;
+```
+
+![Several files go into one field with array, or into different fields with fields](images/25-file-uploads/multiple.gif)
+
+We tested it
+
+| Request                                                         | Answer                                                       |
+| --------------------------------------------------------------- | ------------------------------------------------------------ |
+| `title=Sports day`, 2 PNGs and 1 `.txt` in `photos`             | `{"count":2,"title":"Sports day","files":[...]}`, the text file was skipped by `cb(null, false)` |
+| 6 PNGs in `photos` (max 5)                                      | 400 `LIMIT_UNEXPECTED_FILE`, "Unexpected file field"         |
+| 1 file in `photo`, 2 in `certificates`                          | `{"photo":"6f5ccb0c-...png","certificates":2}`               |
+
+Notice: more files than `maxCount` gives `LIMIT_UNEXPECTED_FILE`, the same code as a wrong field name. The files already saved in that request were deleted automatically.
+
+Here the fileFilter uses `cb(null, Boolean(...))`, which silently skips wrong types. In an API, rejecting with a clear message is usually kinder.
+
+---
+
+## Serving Uploaded Files
+
+Saved files are just files in a folder. Use `express.static` (Session 14) to give them URLs
+
+```javascript
+// Uploaded files are public at /uploads/...
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  setHeaders: (res) => {
+    // The browser must trust the file type we send and never guess it
+    res.set("X-Content-Type-Options", "nosniff");
+  }
+}));
+```
+
+Now `uploads/avatars/7f25e53d-....png` is at `http://localhost:5000/uploads/avatars/7f25e53d-....png`. We tested it: `200 image/png`.
+
+Build the URL from `req.file.filename`, never from `req.file.path`
+
+```javascript
+const url = `/uploads/avatars/${req.file.filename}`;
+```
+
+`req.file.path` is a disk path: `C:\project\uploads\avatars\....png` on Windows. Put that in a URL and it breaks.
+
+Save the **relative** URL (`/uploads/avatars/...`) in the database. The front end adds the domain. If your domain changes, nothing in the database has to change.
+
+Everything in uploads is **public**: anyone with the link can open it. Do not put private documents there. For private files, write a route that checks `protect` (Session 22) and sends the file with `res.sendFile()` (Session 12).
+
+---
+
+## Error Handling for Uploads
+
+Multer errors are `MulterError` objects with a `code`. We tested the real codes
+
+| Situation                                  | `err.code`               | `err.message`            |
+| ------------------------------------------ | ------------------------ | ------------------------ |
+| File larger than `fileSize`                | `LIMIT_FILE_SIZE`        | File too large           |
+| More files than `limits.files`             | `LIMIT_FILE_COUNT`       | Too many files           |
+| Wrong field name, or more than `maxCount`  | `LIMIT_UNEXPECTED_FILE`  | Unexpected file field    |
+
+Many tutorials check `err.code === "FILE_TOO_LARGE"`. That code does not exist, so the check never matches.
+
+Add a Multer case to the error middleware from Session 24 (middleware/errorMiddleware.js)
+
+```javascript
+const handleMulterError = (err) => {
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return new AppError("File is too large. The maximum is 2 MB", 413);
+  }
+  if (err.code === "LIMIT_FILE_COUNT") {
+    return new AppError("Too many files", 400);
+  }
+  if (err.code === "LIMIT_UNEXPECTED_FILE") {
+    // Also used when an array field gets more files than its maxCount
+    return new AppError(`Unexpected file in field "${err.field}" (wrong field name or too many files)`, 400);
+  }
+  return new AppError(err.message, 400);
+};
+```
+
+and one line in `normalizeError()`
+
+```javascript
+  if (err.name === "MulterError") return handleMulterError(err);
+```
+
+![Each upload problem becomes a clear status code and message](images/25-file-uploads/upload-errors.gif)
+
+413 Payload Too Large is the correct status for a file that is too big. `err.field` tells you which field caused the problem.
+
+Express sends Multer's errors to the error middleware by itself, because `upload.single()` is normal middleware. You do not need the `upload.single("file")(req, res, (err) => ...)` style from old tutorials.
+
+---
+
+## Saving the File in the Database
+
+A real app does not just save a file. It connects it to something: a student's avatar, a product's photo. We add an `avatar` field to the Student model from Session 24
+
+```javascript
+    avatar: {
+      type: String // a URL path like /uploads/avatars/<file>.png
+    }
+```
+
+The database stores only the URL. The file itself stays on disk. Databases are bad at storing big files, and disks and file servers are good at it.
+
+Three things to get right
+
+![Upload a new avatar: save the URL, then delete the old file](images/25-file-uploads/replace-avatar.gif)
+
+| Situation                                      | Do                                                |
+| ---------------------------------------------- | ------------------------------------------------- |
+| Something fails after Multer saved the file (bad id, student not found, not a real image) | Delete the new file, or it stays forever with no owner |
+| The student already had an avatar              | Delete the old file after the new one is saved    |
+| The student or avatar is deleted               | Delete the file too                               |
+
+Files nobody points to are called **orphan files**. They slowly fill your disk. In our tests, after 2 good uploads and 5 failed ones, exactly 1 file was left in the folder.
+
+---
+
+## Complete File Upload API
+
+Project structure (the Session 24 project, plus uploads)
+
+```text
+file-upload-api/
+├── controllers/
+│   ├── studentController.js     from Session 24
+│   └── avatarController.js      new
+├── middleware/
+│   ├── errorMiddleware.js       Session 24 + Multer case
+│   └── upload.js                new
+├── models/
+│   └── Student.js               Session 24 + avatar field
+├── routes/
+│   └── studentRoutes.js
+├── uploads/
+│   └── avatars/                 created automatically
+├── utils/
+│   ├── AppError.js              from Session 24
+│   └── checkImage.js            new
+├── .env
+├── .gitignore
+├── server.js
+└── test-upload.js
+```
+
+Add `uploads/` to .gitignore: uploaded files are data, not code.
+
+```text
+node_modules/
+.env
+uploads/
+```
+
+middleware/upload.js
+
+```javascript
+const multer = require("multer");
+const path = require("path");
+const crypto = require("crypto");
+const fs = require("fs");
+const AppError = require("../utils/AppError");
+
+// Where avatars are saved (Session 06: build paths from __dirname)
+const AVATAR_DIR = path.join(__dirname, "..", "uploads", "avatars");
+fs.mkdirSync(AVATAR_DIR, { recursive: true });
+
+// Allowed types. The extension comes from THIS list, never from the user's file name
+const IMAGE_TYPES = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp"
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    let folder = "uploads/";
-    
-    if (file.mimetype.startsWith("image/")) {
-      folder += "images";
-    } else if (file.mimetype.startsWith("video/")) {
-      folder += "videos";
-    } else {
-      folder += "documents";
-    }
-    
-    // Create folder if it doesn't exist
-    if (!fs.existsSync(folder)) {
-      fs.mkdirSync(folder, { recursive: true });
-    }
-    
-    cb(null, folder);
+    cb(null, AVATAR_DIR);
   },
   filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, uniqueName + ext);
+    // A random, unique name: no overwrites, no strange characters
+    cb(null, crypto.randomUUID() + IMAGE_TYPES[file.mimetype]);
   }
 });
 
-// File filter
 const fileFilter = (req, file, cb) => {
-  const allowedImages = ["image/jpeg", "image/png", "image/jpg", "image/gif"];
-  const allowedDocs = ["application/pdf", "application/msword"];
-  const allowedVideos = ["video/mp4", "video/mpeg"];
-  
-  const allowed = [...allowedImages, ...allowedDocs, ...allowedVideos];
-  
-  if (allowed.includes(file.mimetype)) {
-    cb(null, true);
+  if (IMAGE_TYPES[file.mimetype]) {
+    cb(null, true); // accept
   } else {
-    cb(new Error("File type not allowed"), false);
+    cb(new AppError("Only JPEG, PNG and WEBP images are allowed", 400), false); // reject
   }
 };
 
-// Create multer instance
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+const avatarUpload = multer({
+  storage,
+  fileFilter,
   limits: {
-    fileSize: 1024 * 1024 * 10, // 10MB
-    files: 5
+    fileSize: 2 * 1024 * 1024, // 2 MB
+    files: 1
   }
 });
 
-// Serve static files
-app.use("/uploads", express.static("uploads"));
-
-// Routes
-
-// Single file upload
-app.post("/upload/single", upload.single("file"), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No file uploaded"
-      });
-    }
-    
-    const fileUrl = `${req.protocol}://${req.get("host")}/${req.file.path}`;
-    
-    res.json({
-      success: true,
-      message: "File uploaded successfully",
-      file: {
-        name: req.file.filename,
-        size: req.file.size,
-        type: req.file.mimetype,
-        path: req.file.path,
-        url: fileUrl
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// Multiple files upload
-app.post("/upload/multiple", upload.array("files", 5), (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No files uploaded"
-      });
-    }
-    
-    const files = req.files.map(file => ({
-      name: file.filename,
-      size: file.size,
-      type: file.mimetype,
-      url: `${req.protocol}://${req.get("host")}/${file.path}`
-    }));
-    
-    res.json({
-      success: true,
-      message: `${req.files.length} files uploaded`,
-      count: req.files.length,
-      files: files
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// Different fields upload
-app.post("/upload/fields", upload.fields([
-  { name: "avatar", maxCount: 1 },
-  { name: "documents", maxCount: 3 }
-]), (req, res) => {
-  res.json({
-    success: true,
-    avatar: req.files["avatar"] ? req.files["avatar"][0] : null,
-    documents: req.files["documents"] || []
-  });
-});
-
-// Get all uploaded files
-app.get("/files", (req, res) => {
-  const getAllFiles = (dir) => {
-    const files = [];
-    const items = fs.readdirSync(dir, { withFileTypes: true });
-    
-    for (const item of items) {
-      const fullPath = path.join(dir, item.name);
-      if (item.isDirectory()) {
-        files.push(...getAllFiles(fullPath));
-      } else {
-        files.push({
-          name: item.name,
-          path: fullPath,
-          size: fs.statSync(fullPath).size
-        });
-      }
-    }
-    
-    return files;
-  };
-  
-  const allFiles = getAllFiles("uploads");
-  
-  res.json({
-    success: true,
-    count: allFiles.length,
-    files: allFiles
-  });
-});
-
-// Delete file
-app.delete("/files/:filename", (req, res) => {
-  const filename = req.params.filename;
-  
-  // Search for file in all subfolders
-  const findAndDelete = (dir) => {
-    const items = fs.readdirSync(dir, { withFileTypes: true });
-    
-    for (const item of items) {
-      const fullPath = path.join(dir, item.name);
-      if (item.isDirectory()) {
-        findAndDelete(fullPath);
-      } else if (item.name === filename) {
-        fs.unlinkSync(fullPath);
-        return true;
-      }
-    }
-    return false;
-  };
-  
-  const deleted = findAndDelete("uploads");
-  
-  if (deleted) {
-    res.json({
-      success: true,
-      message: "File deleted successfully"
-    });
-  } else {
-    res.status(404).json({
-      success: false,
-      message: "File not found"
-    });
-  }
-});
-
-// Error handling for Multer
-app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === "FILE_TOO_LARGE") {
-      return res.status(400).json({
-        success: false,
-        message: "File too large. Max size is 10MB"
-      });
-    }
-    if (err.code === "LIMIT_FILE_COUNT") {
-      return res.status(400).json({
-        success: false,
-        message: "Too many files. Max is 5"
-      });
-    }
-    if (err.code === "LIMIT_UNEXPECTED_FILE") {
-      return res.status(400).json({
-        success: false,
-        message: "Unexpected field name"
-      });
-    }
-  }
-  
-  if (err) {
-    return res.status(400).json({
-      success: false,
-      message: err.message
-    });
-  }
-  
-  next();
-});
-
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Upload endpoint: http://localhost:${PORT}/upload/single`);
-  console.log(`View files: http://localhost:${PORT}/files`);
-});
+module.exports = { avatarUpload, AVATAR_DIR };
 ```
+
+utils/checkImage.js is shown in [Never Trust the File Type](#never-trust-the-file-type).
+
+controllers/avatarController.js
+
+```javascript
+const fs = require("fs/promises");
+const path = require("path");
+const Student = require("../models/Student");
+const AppError = require("../utils/AppError");
+const { AVATAR_DIR } = require("../middleware/upload");
+const { isRealImage } = require("../utils/checkImage");
+
+// Delete a file, and ignore it if it is already gone
+async function removeFile(filePath) {
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+}
+
+// PATCH /api/students/:id/avatar   (form-data, field "avatar")
+const setAvatar = async (req, res) => {
+  if (!req.file) {
+    throw new AppError('Please send an image in the form field "avatar"', 400);
+  }
+
+  let student;
+  try {
+    // The client chose the type. Check the real first bytes of the file
+    if (!(await isRealImage(req.file))) {
+      throw new AppError("This file is not a real image", 400);
+    }
+
+    student = await Student.findById(req.params.id);
+    if (!student) {
+      throw new AppError("Student not found", 404);
+    }
+  } catch (err) {
+    await removeFile(req.file.path); // never keep a file when something failed
+    throw err;
+  }
+
+  const oldAvatar = student.avatar;
+
+  student.avatar = `/uploads/avatars/${req.file.filename}`;
+  await student.save();
+
+  // Replace: delete the old picture after the new one is saved
+  if (oldAvatar) {
+    await removeFile(path.join(AVATAR_DIR, path.basename(oldAvatar)));
+  }
+
+  res.status(200).json({ success: true, data: student });
+};
+
+// DELETE /api/students/:id/avatar
+const deleteAvatar = async (req, res) => {
+  const student = await Student.findById(req.params.id);
+
+  if (!student) {
+    throw new AppError("Student not found", 404);
+  }
+  if (!student.avatar) {
+    throw new AppError("This student has no avatar", 404);
+  }
+
+  await removeFile(path.join(AVATAR_DIR, path.basename(student.avatar)));
+  student.avatar = undefined;
+  await student.save();
+
+  res.status(200).json({ success: true, message: "Avatar deleted" });
+};
+
+module.exports = { setAvatar, deleteAvatar };
+```
+
+| Code                                    | Why                                                          |
+| --------------------------------------- | ------------------------------------------------------------ |
+| `if (!req.file)`                        | No file is not an error for Multer, so we check it           |
+| `try { ... } catch (err) { removeFile; throw err; }` | Any problem (not an image, bad id, no student) deletes the new file, then the error continues to the error middleware |
+| `throw err` again                       | We only cleaned up. The error middleware still decides the answer (Session 24) |
+| `err.code !== "ENOENT"`                 | A file that is already gone is fine; other errors are real problems (Session 05) |
+| `path.basename(oldAvatar)`              | Takes only the file name from `/uploads/avatars/abc.png`, so the delete can never leave the avatars folder |
+| `student.avatar = undefined`            | Removes the field from the document when saved               |
+
+routes/studentRoutes.js
+
+```javascript
+const express = require("express");
+const router = express.Router();
+
+const {
+  getAllStudents,
+  getStudent,
+  createStudent,
+  updateStudent,
+  deleteStudent
+} = require("../controllers/studentController");
+const { setAvatar, deleteAvatar } = require("../controllers/avatarController");
+const { avatarUpload } = require("../middleware/upload");
+
+router.route("/")
+  .get(getAllStudents)
+  .post(createStudent);
+
+router.route("/:id")
+  .get(getStudent)
+  .patch(updateStudent)
+  .delete(deleteStudent);
+
+// multer runs first and fills req.file, then the controller runs
+router.route("/:id/avatar")
+  .patch(avatarUpload.single("avatar"), setAvatar)
+  .delete(deleteAvatar);
+
+module.exports = router;
+```
+
+The avatar is a part of the student, so it gets its own sub-route: `PATCH /api/students/:id/avatar` changes it, `DELETE` removes it (Session 15 nested resources).
+
+server.js
+
+```javascript
+// ---------- Safety nets (Session 24) ----------
+let server;
+
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION! Shutting down...");
+  console.error(err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED REJECTION! Shutting down...");
+  console.error(err);
+  if (server) {
+    server.close(() => process.exit(1));
+  } else {
+    process.exit(1);
+  }
+});
+
+// ---------- The app ----------
+require("dotenv").config({ quiet: true });
+const express = require("express");
+const mongoose = require("mongoose");
+const path = require("path");
+
+const studentRoutes = require("./routes/studentRoutes");
+const AppError = require("./utils/AppError");
+const errorMiddleware = require("./middleware/errorMiddleware");
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+app.use(express.json({ limit: "10kb" }));
+
+// Uploaded files are public at /uploads/...
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  setHeaders: (res) => {
+    // The browser must trust the file type we send and never guess it
+    res.set("X-Content-Type-Options", "nosniff");
+  }
+}));
+
+app.use("/api/students", studentRoutes);
+
+app.use((req, res, next) => {
+  next(new AppError(`Route ${req.method} ${req.originalUrl} not found`, 404));
+});
+
+app.use(errorMiddleware);
+
+async function startServer() {
+  await mongoose.connect(process.env.MONGODB_URI, { dbName: process.env.DB_NAME });
+  console.log("Connected to MongoDB");
+
+  server = app.listen(PORT, (err) => {
+    if (err) {
+      console.log("Could not start server:", err.message);
+      process.exit(1);
+    }
+
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+startServer();
+```
+
+`express.json({ limit: "10kb" })` does not affect uploads: it only reads JSON bodies. Multipart bodies are read by Multer, with Multer's own limits.
 
 ---
 
 ## Testing File Upload
 
-Using curl
+test-upload.js creates its own test files, so it works on any computer
 
-Single file upload
+```javascript
+const fs = require("fs");
 
-```bash
-curl -X POST http://localhost:3000/upload/single \
-  -F "file=@/path/to/image.jpg"
+const BASE = "http://localhost:5000";
+
+// Make a small real PNG (1 x 1 pixel) and a few bad files to upload
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+const BIG = Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024)]); // a 3 MB "image"
+const HTML = Buffer.from("<script>alert(document.cookie)</script>");
+
+// Send one file in the form field `field`
+async function upload(id, field, content, fileName, type) {
+  const form = new FormData();
+  form.append(field, new Blob([content], { type }), fileName);
+
+  const res = await fetch(`${BASE}/api/students/${id}/avatar`, { method: "PATCH", body: form });
+  const data = await res.json();
+  return { status: res.status, data };
+}
+
+function show(label, { status, data }) {
+  const info = data.success ? data.data.avatar : data.message;
+  console.log(`${label.padEnd(30)} ${status} ${info}`);
+}
+
+async function test() {
+  const res = await fetch(`${BASE}/api/students`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Sara", age: 22, email: "sara@example.com" })
+  });
+  const id = (await res.json()).data._id;
+
+  const first = await upload(id, "avatar", PNG, "my photo.png", "image/png");
+  show("Upload a real PNG", first);
+  show("Upload a second PNG", await upload(id, "avatar", PNG, "new.png", "image/png"));
+  show("Too large (3 MB)", await upload(id, "avatar", BIG, "big.png", "image/png"));
+  show("Text file", await upload(id, "avatar", "hello", "notes.txt", "text/plain"));
+  show("HTML pretending to be PNG", await upload(id, "avatar", HTML, "evil.html", "image/png"));
+  show("Wrong field name", await upload(id, "photo", PNG, "cat.png", "image/png"));
+  show("Student does not exist", await upload("6ac203b2b7392100f72ccf05", "avatar", PNG, "cat.png", "image/png"));
+
+  const student = await (await fetch(`${BASE}/api/students/${id}`)).json();
+  const img = await fetch(BASE + student.data.avatar);
+  console.log("GET the avatar URL:", img.status, img.headers.get("content-type"));
+
+  console.log("Files in uploads/avatars:", fs.readdirSync("uploads/avatars").length);
+}
+
+test();
 ```
 
-Multiple files
+| New in this script                     | Meaning                                                     |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `Buffer.from("iVBOR...", "base64")`    | The bytes of a tiny real PNG, written as base64 text        |
+| `Buffer.alloc(3 * 1024 * 1024)`        | 3 MB of zero bytes, to make a file that is too large        |
+| `new FormData()`                       | Builds a multipart body, like an HTML form with a file      |
+| `new Blob([content], { type })`        | Wraps bytes as a file with a type; the third `append` argument is its file name |
+| No `Content-Type` header               | fetch sets `multipart/form-data` with the boundary by itself |
+
+Run the server, then the test
 
 ```bash
-curl -X POST http://localhost:3000/upload/multiple \
-  -F "files=@/path/to/file1.jpg" \
-  -F "files=@/path/to/file2.pdf"
+node server.js
+node test-upload.js
 ```
 
-View all files
+Output (tested; your file names will differ)
+
+```text
+Upload a real PNG              200 /uploads/avatars/7f25e53d-85c3-4fd7-9ca1-0cfff6757958.png
+Upload a second PNG            200 /uploads/avatars/2157fcda-2313-4b56-8b3f-558ed2f7e8bb.png
+Too large (3 MB)               413 File is too large. The maximum is 2 MB
+Text file                      400 Only JPEG, PNG and WEBP images are allowed
+HTML pretending to be PNG      400 This file is not a real image
+Wrong field name               400 Unexpected file in field "photo" (wrong field name or too many files)
+Student does not exist         404 Student not found
+GET the avatar URL: 200 image/png
+Files in uploads/avatars: 1
+```
+
+![The test script tries good and bad uploads, and only one file is left](images/25-file-uploads/test-run.gif)
+
+Only 1 file is left: the second avatar replaced the first (old file deleted), and every failed upload was cleaned up.
+
+With curl (replace the id)
 
 ```bash
-curl http://localhost:3000/files
+curl -X PATCH http://localhost:5000/api/students/STUDENT_ID/avatar -F "avatar=@cat.png"
 ```
 
-Delete a file
-
-```bash
-curl -X DELETE http://localhost:3000/files/1703123456789-123456789.jpg
-```
+In PowerShell, use `curl.exe` instead of `curl`.
 
 Using Postman
 
-```text
-Method: POST
-URL: http://localhost:3000/upload/single
-Body -> form-data
-Key: file (type: File)
-Value: Select a file from your computer
-```
+1. Method `PATCH`, URL `http://localhost:5000/api/students/STUDENT_ID/avatar`
+2. Body → **form-data**
+3. Key `avatar`, change its type from Text to **File**
+4. Choose a picture and click Send
+
+---
+
+## Disk or Cloud Storage
+
+| Storage                    | How                                   | Good for                               |
+| -------------------------- | ------------------------------------- | -------------------------------------- |
+| Disk (`diskStorage`)       | Files in a folder on your server      | Learning, small apps, one server       |
+| Memory (`memoryStorage()`) | The file is in `req.file.buffer`, nothing saved | Sending the file on to a cloud service |
+| Cloud (Amazon S3, Cloudinary, ...) | Your server sends the file to a storage service | Real apps, several servers |
+
+Why do real apps move files to the cloud?
+
+* Many hosting platforms delete local files on every restart or deploy
+* With several servers, a file saved on server A is missing on server B
+* Cloud storage is built for big files, backups and fast delivery
+
+The ideas of this session stay the same: limit the size, check the type, pick your own name, save the URL in the database, and clean up old files.
+
+---
+
+## Beginner Mistakes
+
+### Mistake 1
+
+Using `file.originalname` as the saved name.
+
+Files overwrite each other, and a file named `evil.html` is served as a web page. Generate the name yourself.
+
+---
+
+### Mistake 2
+
+Trusting `file.mimetype`.
+
+The client writes it. Take the extension from your own list, send `nosniff`, and check the first bytes.
+
+---
+
+### Mistake 3
+
+The field name does not match.
+
+`upload.single("avatar")` with a form field called `photo` gives `LIMIT_UNEXPECTED_FILE`.
+
+---
+
+### Mistake 4
+
+Sending the file as JSON or setting `Content-Type: application/json`.
+
+Files need `multipart/form-data`. With fetch and FormData, do not set the Content-Type yourself; fetch adds the boundary.
+
+---
+
+### Mistake 5
+
+Checking `err.code === "FILE_TOO_LARGE"`.
+
+The real code is `LIMIT_FILE_SIZE`.
+
+---
+
+### Mistake 6
+
+Rejecting with `new Error(...)` in fileFilter.
+
+It becomes a 500 in production. Use `new AppError(message, 400)`.
+
+---
+
+### Mistake 7
+
+Building URLs from `req.file.path`.
+
+It contains backslashes on Windows. Use `req.file.filename`.
+
+---
+
+### Mistake 8
+
+Forgetting to delete files.
+
+When a request fails after the upload, or an avatar is replaced, the old file stays forever.
+
+---
+
+### Mistake 9
+
+No size limit.
+
+One upload can fill your disk.
+
+---
+
+### Mistake 10
+
+Committing the uploads folder.
+
+Add `uploads/` to .gitignore.
 
 ---
 
@@ -850,47 +1045,27 @@ Value: Select a file from your computer
 
 ### Exercise 1
 
-Create a profile picture upload
-
-Only allow images
-
-Max size 1MB
-
-Save with user id as filename
+Add `DELETE /api/students/:id` cleanup: when a student is deleted, delete their avatar file too
 
 ### Exercise 2
 
-Create a document upload system
-
-Allow PDF and DOC files
-
-Max size 5MB
-
-Store in documents folder
+Create a documents upload: `POST /api/students/:id/documents` accepts up to 3 PDF files (`application/pdf`, signature `25504446`, which is `%PDF`), max 5 MB each. Save their URLs in a `documents` array on the student with `$push` (Session 18)
 
 ### Exercise 3
 
-Add file validation to check for viruses
-
-Check file signature (magic numbers)
+Add GIF support to the avatar upload. Find the GIF signature (it starts with the text `GIF8`) and add it to `IMAGE_TYPES` and `SIGNATURES`
 
 ### Exercise 4
 
-Create a gallery upload
-
-Allow up to 10 images
-
-Create thumbnails for each image
+Protect the avatar route with `protect` from Session 22, and only allow a user to change their own avatar
 
 ### Exercise 5
 
-Implement file sharing system
+Return the full URL in the response: `${req.protocol}://${req.get("host")}${student.avatar}`, but keep saving only the relative path in the database
 
-Users can upload files
+### Exercise 6
 
-Get unique download link
-
-Link expires after 24 hours
+Write a script `clean-orphans.js` that lists every file in uploads/avatars that no student points to, and deletes it
 
 ---
 
@@ -898,55 +1073,58 @@ Link expires after 24 hours
 
 ### What is Multer
 
-Multer is middleware for handling multipart/form-data file uploads in Express
+Middleware for Express that reads multipart/form-data, saves uploaded files and puts their details in req.file or req.files
 
-### What is the difference between single and array methods
+### Why can't files be sent as JSON
 
-single handles one file with specific field name
-array handles multiple files with same field name
+JSON is text. Files are binary data, so they are sent as multipart/form-data, which has a separate part for each field and file
 
-### What is diskStorage
+### What is the difference between single, array and fields
 
-diskStorage is a Multer storage engine that saves files to the disk
-
-### How do you validate file types
-
-Using fileFilter function that checks mimetype or file extension
-
-### How do you limit file size
-
-Using limits.fileSize option in Multer configuration
-
-### Where should uploaded files be stored
-
-Uploads folder on disk or cloud storage like S3
-
-### How do you serve uploaded files
-
-Using express.static middleware to serve the uploads folder
+single: one file in one field (req.file). array: many files in one field (req.files array). fields: several named fields (req.files object)
 
 ### What is the difference between req.file and req.files
 
-req.file contains single uploaded file
-req.files contains array or object of multiple files
+req.file is one file from single(). req.files is an array from array() or an object from fields()
 
----
+### What is diskStorage
 
-## Summary
+A Multer storage engine that saves files to disk, where you choose the folder and the file name
 
-In this session, you learned
+### Why not use the original file name
 
-* What file upload is
-* What Multer is and why to use it
-* How to configure Multer storage
-* Single file upload
-* Multiple file upload
-* File validation (type and size)
-* Custom file naming
-* Serving static files
-* Error handling for uploads
-* Complete file upload API
+Files overwrite each other, and the extension decides how the file is served, so a .html upload could run scripts. Generate a unique name with your own extension
 
-You can now handle file uploads in your applications
+### Can you trust file.mimetype
+
+No. The client writes it. Check the file's first bytes (magic numbers) and choose the extension yourself
+
+### What are magic numbers
+
+The first bytes of a file that identify its real type, for example 89 50 4E 47 for PNG
+
+### How do you limit file size
+
+limits.fileSize in the Multer options. Breaking it gives a MulterError with code LIMIT_FILE_SIZE
+
+### What status code should a file that is too large get
+
+413 Payload Too Large
+
+### How do you serve uploaded files
+
+express.static on the uploads folder, with X-Content-Type-Options: nosniff, and URLs built from the file name
+
+### What should you store in the database for an uploaded file
+
+Its relative URL or path, not the file itself
+
+### What are orphan files
+
+Uploaded files that nothing in the database points to anymore, for example after a failed request or a replaced avatar. They must be deleted
+
+### Why do real apps use cloud storage for uploads
+
+Local files can disappear on restarts and are missing on other servers. Cloud storage keeps them safe and shared
 
 ---
