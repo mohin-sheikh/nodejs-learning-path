@@ -500,7 +500,7 @@ const login = async (req, res) => {
   const user = await User.findOne({ email: String(email).toLowerCase() }).select("+password");
 
   // Same message for "no such email" and "wrong password"
-  if (!user || !(await user.comparePassword(password))) {
+  if (!user || !(await user.comparePassword(String(password)))) {
     return res.status(401).json({ success: false, message: "Invalid email or password" });
   }
 
@@ -518,6 +518,7 @@ const login = async (req, res) => {
 | ------------------------------------- | -------------------------------------------------------- |
 | `.select("+password")`                | The password is hidden by default, but we need it to compare |
 | `String(email).toLowerCase()`         | Emails are saved in lowercase. `String()` stops NoSQL injection (below) |
+| `String(password)`                    | bcrypt throws "Illegal arguments" (a 500) if the password is an object instead of text |
 | Same message for both failures        | An attacker cannot find out which emails are registered  |
 | `!user \|\| !(await ...)`             | If there is no user, `\|\|` stops before calling comparePassword |
 | 403 for deactivated                   | The password is right, but the account is not allowed    |

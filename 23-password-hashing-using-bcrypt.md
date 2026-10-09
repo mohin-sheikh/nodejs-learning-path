@@ -1,17 +1,25 @@
 ## Table of Contents
 
 * [Why Password Hashing](#why-password-hashing)
-* [What is bcrypt](#what-is-bcrypt)
 * [Hashing vs Encryption](#hashing-vs-encryption)
+* [Why Not a Normal Hash Like SHA-256](#why-not-a-normal-hash-like-sha-256)
+* [What is bcrypt](#what-is-bcrypt)
 * [How bcrypt Works](#how-bcrypt-works)
 * [Installing bcrypt](#installing-bcrypt)
 * [Hashing a Password](#hashing-a-password)
 * [Comparing a Password](#comparing-a-password)
+* [Salt and genSalt](#salt-and-gensalt)
 * [Salt Rounds](#salt-rounds)
+* [Do Not Block the Event Loop](#do-not-block-the-event-loop)
+* [The 72-Byte Limit](#the-72-byte-limit)
 * [Complete Password Management Example](#complete-password-management-example)
+* [bcrypt in Express (Review from Session 22)](#bcrypt-in-express-review-from-session-22)
+* [Changing a Password Safely](#changing-a-password-safely)
+* [Logging Out Old Tokens After a Password Change](#logging-out-old-tokens-after-a-password-change)
+* [Security Best Practices](#security-best-practices)
+* [Beginner Mistakes](#beginner-mistakes)
 * [Practice Exercises](#practice-exercises)
 * [Interview Questions](#interview-questions)
-* [Summary](#summary)
 
 ---
 
@@ -24,65 +32,29 @@ Never do this
 ```javascript
 const user = {
   name: "John",
-  password: "123456"  // DANGER! Never do this
+  password: "123456" // DANGER! Never do this
 };
 ```
 
-What if someone gets access to your database
+What if someone gets access to your database? It happens to big companies every year: a stolen backup, a leaked .env, a bug in a query.
 
-```text
-Hacker steals database
-Sees all passwords in plain text
-Can login as any user
-Users use same password on other sites
-Huge security problem
-```
+![A thief steals the database: plain passwords are readable, hashes are useless](images/23-password-hashing-using-bcrypt/data-breach.gif)
+
+With plain text passwords
+
+* The attacker sees every password immediately
+* They can log in as any user
+* Most people reuse passwords, so the attacker also tries them on email, banking and social media
 
 Solution - Hash the password
 
-```text
-User enters password "123456"
-Server hashes it to "fj3k9d8f3j9d8f3j9d8f3j9d8f"
-Store hash in database
-Even if hacker steals database
-They cannot get original password
-```
+* The user enters `"123456"`
+* The server turns it into a hash like `$2b$10$9MB4R.5UuKMvRFzKaDqzne...`
+* Only the hash is stored
+* When the user logs in, the server hashes what they typed and checks it against the stored hash
+* A stolen hash cannot be turned back into the password
 
----
-
-## What is bcrypt
-
-bcrypt is a password hashing library
-
-It is designed specifically for passwords
-
-Features of bcrypt
-
-```text
-Slow by design (makes brute force hard)
-Adds salt automatically (prevents rainbow tables)
-Produces same length output always
-Widely used and trusted
-```
-
-bcrypt vs simple hash
-
-Simple hash like MD5 or SHA256
-
-```text
-Fast to compute
-Same password always gives same hash
-Hackers can pre-compute hashes (rainbow tables)
-```
-
-bcrypt
-
-```text
-Slow to compute (takes time)
-Adds random salt
-Same password gives different hash each time
-Much more secure
-```
+The server never needs to know the real password after registration. It only needs to check if a typed password is the same one.
 
 ---
 
@@ -90,446 +62,494 @@ Much more secure
 
 People often confuse hashing and encryption
 
-They are different
+| Feature                  | Hashing                          | Encryption                         |
+| ------------------------ | -------------------------------- | ---------------------------------- |
+| Direction                | One-way: cannot be reversed      | Two-way: can be decrypted          |
+| Needs a key              | No                               | Yes, and whoever has the key can read everything |
+| Output length            | Always the same length           | Grows with the input               |
+| Used for                 | Passwords, checking files        | HTTPS, encrypted files, messages   |
 
-Encryption
-
-```text
-Two-way process
-Can encrypt and decrypt
-Needs a key
-Example: HTTPS, file encryption
-```
-
-Hashing
-
-```text
-One-way process
-Cannot reverse
-No key needed
-Example: Passwords, digital signatures
-```
-
-Comparison table
-
-| Feature | Hashing | Encryption |
-| ------- | ------- | ---------- |
-| Reversible | No | Yes |
-| Needs key | No | Yes |
-| Same input same output | Yes (for same hash) | No (with different key) |
-| Use case | Passwords | Secure communication |
+![Hashing is like a smoothie, encryption is like a lockbox](images/23-password-hashing-using-bcrypt/hash-vs-encrypt.gif)
 
 Think of hashing like making a smoothie
 
-```text
-Put in fruits -> Get smoothie
-Cannot get fruits back from smoothie
-Same fruits always make same smoothie
-```
+* Put in fruits, get a smoothie
+* You cannot get the fruits back from the smoothie
+* The same fruits always make the same taste, so you can check "was this made from these fruits?"
 
 Think of encryption like a lockbox
 
-```text
-Put item in box -> Lock with key
-Key opens box -> Get item back
+* Put an item in the box and lock it with a key
+* Anyone with the key gets the item back
+
+Passwords should be **hashed**, not encrypted. If passwords were encrypted, an attacker who also steals the key (often stored on the same server) could read all of them.
+
+---
+
+## Why Not a Normal Hash Like SHA-256
+
+Node.js has a built-in `crypto` module (Session 22 used it to make a secret) that can make SHA-256 hashes. Why not use that?
+
+sha-demo.js
+
+```javascript
+const crypto = require("crypto");
+
+function sha256(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+console.log(sha256("123456"));
+console.log(sha256("123456"));
+
+// How many guesses per second?
+let count = 0;
+const start = Date.now();
+while (Date.now() - start < 1000) {
+  sha256("guess" + count);
+  count++;
+}
+console.log("SHA-256 guesses in 1 second:", count);
 ```
+
+Output
+
+```text
+8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92
+8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92
+SHA-256 guesses in 1 second: 792593
+```
+
+Two big problems
+
+| Problem                         | Why it matters                                                  |
+| ------------------------------- | --------------------------------------------------------------- |
+| Same password → same hash       | Everyone with `123456` has the same hash. Attackers keep huge ready-made lists of hashes for common passwords (**rainbow tables**), so a hash like this is simply looked up, not cracked |
+| Far too fast                    | One laptop core tries about 790,000 passwords per second. Graphics cards try billions |
+
+![SHA-256 guesses fly by, bcrypt guesses crawl](images/23-password-hashing-using-bcrypt/guess-speed.gif)
+
+SHA-256 is a great tool for checking that a file was not changed. It was designed to be fast, which is exactly what you do **not** want for passwords.
+
+---
+
+## What is bcrypt
+
+bcrypt is a hashing method designed specifically for passwords
+
+| Feature                       | What it does                                                    |
+| ----------------------------- | --------------------------------------------------------------- |
+| Slow on purpose               | About 16 guesses per second on the same laptop (we measured, see [Salt Rounds](#salt-rounds)) |
+| Random salt                   | The same password gives a different hash every time. Rainbow tables are useless |
+| Adjustable cost (rounds)      | When computers get faster, you raise the number to stay slow    |
+| Everything in one string      | The salt and the cost are stored inside the hash, nothing extra to save |
+
+How much does "slow" help? Take a password of 8 lowercase letters. There are 26 to the power of 8, about 209 billion, possible passwords
+
+| Method               | Guesses per second (one laptop core) | Time to try them all |
+| -------------------- | ------------------------------------ | -------------------- |
+| SHA-256              | ~790,000                             | about 3 days         |
+| bcrypt, 10 rounds    | ~16                                  | about 400 years      |
+
+Real attackers use many machines, so the real numbers are smaller, but the difference stays huge.
 
 ---
 
 ## How bcrypt Works
 
-bcrypt has three steps
+When hashing
 
-Step 1 - Generate a salt
+1. Create a random **salt** (16 random bytes)
+2. Mix the password and the salt
+3. Run the slow bcrypt algorithm `2^rounds` times
+4. Put the version, the rounds, the salt and the result into one string
 
-```text
-Salt is random data
-Makes each hash unique
-Even for same password
-```
-
-Step 2 - Combine password and salt
+A real bcrypt hash from this session
 
 ```text
-password + salt = combined
+$2b$10$9MB4R.5UuKMvRFzKaDqzneetlOnJ6fJKgylrdv2PmNj3WF1R.67mi
 ```
 
-Step 3 - Hash the combined string
+![The four parts of a bcrypt hash](images/23-password-hashing-using-bcrypt/hash-anatomy.gif)
 
-```text
-bcrypt(combined) = final hash
-```
+| Part                                   | Meaning                                         |
+| -------------------------------------- | ----------------------------------------------- |
+| `$2b$`                                 | bcrypt version                                  |
+| `10$`                                  | Rounds (cost): the work is repeated 2^10 = 1024 times |
+| `9MB4R.5UuKMvRFzKaDqzne`               | The salt (22 characters)                        |
+| `etlOnJ6fJKgylrdv2PmNj3WF1R.67mi`      | The hash itself (31 characters)                 |
 
-The final hash contains
-
-```text
-Algorithm version
-Salt
-Hash value
-All in one string
-```
-
-Example bcrypt hash
-
-```text
-$2b$10$abcdefghij1234567890u7xYz8ABCDEFGHIJKLMNOPQRSTUVWXYZ
-```
-
-Parts of the hash
-
-```text
-$2b$ -> Algorithm version
-10 -> Salt rounds (2^10 iterations)
-abcdefghij1234567890 -> Salt (22 characters)
-u7xYz8ABCDEFGHIJKLMNOPQRSTUVWXYZ -> Hash (31 characters)
-```
+The whole string is always 60 characters. The salt is not secret: it only makes every hash unique. Because it is stored inside the hash, bcrypt can find it again when checking a password.
 
 ---
 
 ## Installing bcrypt
 
-bcrypt has two versions
+There are two packages
 
-```text
-bcrypt -> Written in C++ (faster but needs compilation)
-bcryptjs -> Pure JavaScript (easier to install)
-```
+| Package    | Written in              | Install                          | Speed                 |
+| ---------- | ----------------------- | -------------------------------- | --------------------- |
+| `bcryptjs` | Plain JavaScript        | Always works, nothing to compile | Slower, runs on the main thread |
+| `bcrypt`   | C++ (native)            | Uses prebuilt files; rarely, it needs build tools | Faster, runs in the libuv thread pool (Session 03) |
 
-For beginners, bcryptjs is better
+Both make the same `$2b$` hashes, and they have the same functions, so you can switch later by changing one `require`.
 
-No compilation needed
-
-Works on all systems
-
-Install bcryptjs
+For beginners, bcryptjs is easier
 
 ```bash
 npm install bcryptjs
 ```
 
-For production apps, use bcrypt
+We use bcryptjs in this session (and in Session 22). For a busy production server, the native `bcrypt` package is the better choice, see [Do Not Block the Event Loop](#do-not-block-the-event-loop).
 
 ```bash
 npm install bcrypt
 ```
 
-We will use bcryptjs for this session
+With npm 11 you may see `npm warn allow-scripts bcrypt@6.0.0 (install: node-gyp-build)` when installing `bcrypt`. npm now asks before running install scripts. We tested it: bcrypt still worked, because it finds its prebuilt file when it is first used.
 
 ---
 
 ## Hashing a Password
 
-Basic hashing
+hash-demo.js
 
 ```javascript
 const bcrypt = require("bcryptjs");
 
-const password = "mySecretPassword123";
+async function main() {
+  const password = "password123";
 
-bcrypt.genSalt(10, (err, salt) => {
-  bcrypt.hash(password, salt, (err, hash) => {
-    console.log("Hash:", hash);
-  });
-});
-```
+  const hash1 = await bcrypt.hash(password, 10);
+  const hash2 = await bcrypt.hash(password, 10);
 
-Using promises (easier)
+  console.log("Hash 1:", hash1);
+  console.log("Hash 2:", hash2);
+  console.log("Same hash?", hash1 === hash2);
 
-```javascript
-const bcrypt = require("bcryptjs");
-
-async function hashPassword() {
-  const password = "mySecretPassword123";
-  
-  const salt = await bcrypt.genSalt(10);
-  const hash = await bcrypt.hash(password, salt);
-  
-  console.log("Password:", password);
-  console.log("Hash:", hash);
+  console.log("Check hash 1:", await bcrypt.compare(password, hash1));
+  console.log("Check hash 2:", await bcrypt.compare(password, hash2));
+  console.log("Wrong password:", await bcrypt.compare("Password123", hash1));
 }
 
-hashPassword();
+main();
 ```
 
-Output example
+Output (your hashes will be different)
 
 ```text
-Password: mySecretPassword123
-Hash: $2a$10$N9qo8uLOickgx2ZMRZoMy.Mr5v7vXvK9vXvK9vXvK9vXvK9vXvK9
+Hash 1: $2b$10$9MB4R.5UuKMvRFzKaDqzneetlOnJ6fJKgylrdv2PmNj3WF1R.67mi
+Hash 2: $2b$10$aWdHB8dEGP/7Ggkl8oVix.v31uVjAx5FUNlEiir.Y8hsCscVADICu
+Same hash? false
+Check hash 1: true
+Check hash 2: true
+Wrong password: false
 ```
 
-Same password, different hash each time
+| Code                         | Meaning                                                   |
+| ---------------------------- | --------------------------------------------------------- |
+| `bcrypt.hash(password, 10)`  | Make a new salt with 10 rounds and hash the password      |
+| `await`                      | Hashing takes time, so it returns a Promise (Session 03)  |
 
-```javascript
-// First run
-const hash1 = await bcrypt.hash("password123", await bcrypt.genSalt(10));
+The same password gave two different hashes (different salts), yet both are correct. And `"Password123"` with a capital P is a different password.
 
-// Second run
-const hash2 = await bcrypt.hash("password123", await bcrypt.genSalt(10));
-
-console.log(hash1 === hash2); // false (different salts)
-```
+bcryptjs also has a callback style, `bcrypt.hash(password, 10, (err, hash) => { ... })`, which you may see in old tutorials. `await` is easier to read.
 
 ---
 
 ## Comparing a Password
 
-When user logs in
+When a user logs in, you have the typed password and the stored hash. You **cannot** do `hash(typed) === storedHash`, because a new hash would have a new salt. Use `bcrypt.compare()`
 
-```text
-User enters password
-Get stored hash from database
-Compare entered password with stored hash
-bcrypt handles the salt automatically
+```javascript
+const isMatch = await bcrypt.compare(typedPassword, storedHash);
 ```
 
-Compare function
+![compare takes the salt out of the stored hash and hashes the typed password with it](images/23-password-hashing-using-bcrypt/compare.gif)
+
+How bcrypt.compare works
+
+1. Read the rounds and the salt from the stored hash
+2. Hash the typed password with the **same** salt and rounds
+3. Compare the result with the stored hash
+4. Return `true` or `false`
+
+`compare()` throws if one of the values is not a string
+
+| Call                                     | Result                                            |
+| ---------------------------------------- | ------------------------------------------------- |
+| `compare("x", undefined)`                | `Error: Illegal arguments: string, undefined`     |
+| `compare({ $gt: "" }, hash)`             | `Error: Illegal arguments: object, string`        |
+
+The first one is the classic mistake of forgetting `.select("+password")` (Session 22): the user has no password field, so the hash is `undefined`. The second is why Session 22's login uses `String(password)`.
+
+---
+
+## Salt and genSalt
+
+`bcrypt.hash(password, 10)` makes the salt for you. You can also make it yourself
+
+salt-demo.js
 
 ```javascript
 const bcrypt = require("bcryptjs");
 
-async function comparePasswords() {
-  const enteredPassword = "mySecretPassword123";
-  const storedHash = "$2a$10$N9qo8uLOickgx2ZMRZoMy.Mr5v7vXvK9vXvK9vXvK9vXvK9vXvK9";
-  
-  const isMatch = await bcrypt.compare(enteredPassword, storedHash);
-  
-  if (isMatch) {
-    console.log("Password is correct");
-  } else {
-    console.log("Password is incorrect");
-  }
+async function main() {
+  const salt = await bcrypt.genSalt(10);
+  const hash = await bcrypt.hash("password123", salt);
+
+  console.log("Salt:", salt);
+  console.log("Hash:", hash);
+  console.log("Hash starts with the salt?", hash.startsWith(salt));
+  console.log("Rounds inside the hash:", bcrypt.getRounds(hash));
 }
 
-comparePasswords();
+main();
 ```
 
-How bcrypt.compare works
+Output
 
 ```text
-Extracts salt from stored hash
-Hashes entered password with same salt
-Compares results
-Returns true or false
+Salt: $2b$10$FW1WyFxreV9UTJUCC26EKO
+Hash: $2b$10$FW1WyFxreV9UTJUCC26EKOsbN9LoY9YTYMEAFujyNJKIK/j8UrdUu
+Hash starts with the salt? true
+Rounds inside the hash: 10
 ```
+
+The first 29 characters of the hash **are** the salt. That is why you never store the salt separately.
+
+| Style                                                 | Result                 |
+| ----------------------------------------------------- | ---------------------- |
+| `bcrypt.hash(password, 10)`                           | Same                   |
+| `bcrypt.hash(password, await bcrypt.genSalt(10))`     | Same, one extra line   |
+
+Most code uses the short form. `bcrypt.getRounds(hash)` tells you which cost an old hash used, useful when you raise the rounds later.
 
 ---
 
 ## Salt Rounds
 
-Salt rounds determine how slow bcrypt is
+The rounds (also called the cost) decide how slow bcrypt is. Each +1 **doubles** the work
 
-Higher salt rounds = slower but more secure
-
-Formula
-
-```text
-Time = 2^saltRounds milliseconds
-```
-
-Examples
-
-| Salt Rounds | Approximate Time |
-| ----------- | ----------------- |
-| 8 | 0.04 seconds |
-| 10 | 0.08 seconds |
-| 12 | 0.32 seconds |
-| 14 | 1.28 seconds |
-| 16 | 5.12 seconds |
-
-Recommended salt rounds
-
-```text
-Development -> 10
-Production (low security) -> 10
-Production (normal) -> 12
-Production (high security) -> 14
-```
-
-Too high salt rounds cause slow response times
-
-Example with different salt rounds
+rounds-demo.js
 
 ```javascript
 const bcrypt = require("bcryptjs");
 
-async function testSaltRounds() {
-  const password = "test123";
-  
-  // Salt rounds 8
-  console.time("Salt 8");
-  const hash8 = await bcrypt.hash(password, 8);
-  console.timeEnd("Salt 8");
-  
-  // Salt rounds 10
-  console.time("Salt 10");
-  const hash10 = await bcrypt.hash(password, 10);
-  console.timeEnd("Salt 10");
-  
-  // Salt rounds 12
-  console.time("Salt 12");
-  const hash12 = await bcrypt.hash(password, 12);
-  console.timeEnd("Salt 12");
+async function main() {
+  for (const rounds of [8, 10, 12, 14]) {
+    console.time(`${rounds} rounds`);
+    await bcrypt.hash("test123", rounds);
+    console.timeEnd(`${rounds} rounds`);
+  }
 }
 
-testSaltRounds();
+main();
 ```
 
-Output example
+`console.time(label)` starts a stopwatch and `console.timeEnd(label)` prints how long it took.
+
+Output (measured on a normal laptop, yours will differ)
 
 ```text
-Salt 8: 42ms
-Salt 10: 85ms
-Salt 12: 340ms
+8 rounds: 23.794ms
+10 rounds: 66.751ms
+12 rounds: 263.918ms
+14 rounds: 1.044s
+```
+
+![Each extra round doubles the time](images/23-password-hashing-using-bcrypt/rounds.gif)
+
+| Rounds | Work (2^rounds) | Time we measured | Logins per second (one core) |
+| ------ | --------------- | ---------------- | ---------------------------- |
+| 8      | 256             | 24 ms            | ~40                          |
+| 10     | 1,024           | 67 ms            | ~15                          |
+| 12     | 4,096           | 264 ms           | ~4                           |
+| 14     | 16,384          | 1.04 s           | ~1                           |
+
+The same slowness that stops attackers also slows your own logins. Choosing the number
+
+* **10** is the common default and what this course uses
+* **12** for production on a decent server
+* Aim for roughly 100 to 300 ms per hash on your real server
+* Do not go below 10
+
+You can raise the rounds later. Old hashes keep working, because each hash remembers its own rounds. When a user logs in successfully, you can check `bcrypt.getRounds(user.password)` and save a new hash with the new rounds.
+
+---
+
+## Do Not Block the Event Loop
+
+bcryptjs also has sync versions, `hashSync()` and `compareSync()`. They are easy to use, but dangerous in a server.
+
+Node.js runs your JavaScript on one main thread (Session 03). While that thread is busy hashing, it cannot answer anyone else. We measured how late a 10 ms timer fires while hashing with 12 rounds
+
+block-demo.js
+
+```javascript
+const bcrypt = require("bcryptjs");
+
+// A timer that should fire after 10 ms. How late is it?
+function timerTest(label, work) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    setTimeout(() => {
+      console.log(`${label}: 10 ms timer fired after ${Date.now() - start} ms`);
+      resolve();
+    }, 10);
+    work();
+  });
+}
+
+async function main() {
+  await timerTest("bcrypt.hashSync", () => bcrypt.hashSync("password", 12));
+  await timerTest("await bcrypt.hash", () => bcrypt.hash("password", 12));
+}
+
+main();
+```
+
+Output
+
+```text
+bcrypt.hashSync: 10 ms timer fired after 270 ms
+await bcrypt.hash: 10 ms timer fired after 101 ms
+```
+
+And the same test with the native `bcrypt` package (`require("bcrypt")`)
+
+```text
+native await bcrypt.hash: 10 ms timer fired after 21 ms
+```
+
+![hashSync freezes the server, native bcrypt works in the background](images/23-password-hashing-using-bcrypt/event-loop.gif)
+
+| Function                    | What happens to other requests during a hash         |
+| --------------------------- | ---------------------------------------------------- |
+| bcryptjs `hashSync()`       | Completely blocked until the hash is done            |
+| bcryptjs `await hash()`     | Get small turns in between, but are still slowed down |
+| native bcrypt `await hash()` | Hardly affected: the work runs in the libuv thread pool |
+
+Rules
+
+* Never use `hashSync()` or `compareSync()` inside a route
+* bcryptjs with `await` is fine for learning and small apps
+* For a server with many logins, switch to the native `bcrypt` package
+
+---
+
+## The 72-Byte Limit
+
+bcrypt only uses the first **72 bytes** of a password. Everything after that is ignored
+
+long-demo.js
+
+```javascript
+const bcrypt = require("bcryptjs");
+
+async function main() {
+  const start = "a".repeat(72); // 72 letters
+  const hash = await bcrypt.hash(start + "MySecretEnding", 10);
+
+  console.log(await bcrypt.compare(start + "TotallyDifferent", hash));
+  console.log(bcrypt.truncates(start + "MySecretEnding"));
+}
+
+main();
+```
+
+Output
+
+```text
+true
+true
+```
+
+A completely different ending still matches, because bcrypt never saw it. `bcrypt.truncates()` tells you if a password is too long. The native `bcrypt` package behaves the same way (we tested it).
+
+An English letter, digit or symbol is 1 byte, so 72 bytes is 72 such characters. Letters like `é` use 2 bytes, and emoji use 4. The simple fix is a limit in the schema, which you will see in the [User model below](#bcrypt-in-express-review-from-session-22)
+
+```javascript
+maxlength: [72, "Password cannot be longer than 72 characters"]
 ```
 
 ---
 
 ## Complete Password Management Example
 
-Create a file named passwordManager.js
+This example uses an array instead of a database, so you can focus on bcrypt. It uses a `nextId` counter (Session 11), never `users.length + 1`, which gives duplicate ids after a delete.
+
+passwordManager.js
 
 ```javascript
 const bcrypt = require("bcryptjs");
 
-// Simulate database
+const SALT_ROUNDS = 10;
+
+// A fake database: an array, with an id counter (Session 11)
 const users = [];
+let nextId = 1;
 
-// Function to register a new user
 async function registerUser(name, email, password) {
-  try {
-    // Hash the password
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-    
-    // Store user in database
-    const newUser = {
-      id: users.length + 1,
-      name: name,
-      email: email,
-      password: hashedPassword,
-      createdAt: new Date()
-    };
-    
-    users.push(newUser);
-    
-    console.log("User registered successfully");
-    console.log("Stored hash:", hashedPassword);
-    
-    return newUser;
-    
-  } catch (error) {
-    console.error("Registration failed:", error);
+  if (users.some((u) => u.email === email)) {
+    console.log("Email already registered");
+    return null;
   }
+
+  const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+  const user = { id: nextId++, name, email, password: hashedPassword };
+  users.push(user);
+
+  console.log(`Registered ${name}. Stored hash: ${hashedPassword.slice(0, 20)}...`);
+  return user;
 }
 
-// Function to login a user
 async function loginUser(email, password) {
-  try {
-    // Find user in database
-    const user = users.find(u => u.email === email);
-    
-    if (!user) {
-      console.log("User not found");
-      return false;
-    }
-    
-    // Compare password
-    const isMatch = await bcrypt.compare(password, user.password);
-    
-    if (isMatch) {
-      console.log("Login successful!");
-      console.log(`Welcome back, ${user.name}`);
-      return true;
-    } else {
-      console.log("Incorrect password");
-      return false;
-    }
-    
-  } catch (error) {
-    console.error("Login failed:", error);
+  const user = users.find((u) => u.email === email);
+
+  // Same message for both cases (Session 22)
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    console.log("Login failed: invalid email or password");
     return false;
   }
+
+  console.log(`Login successful. Welcome back, ${user.name}`);
+  return true;
 }
 
-// Function to change password
 async function changePassword(email, oldPassword, newPassword) {
-  try {
-    const user = users.find(u => u.email === email);
-    
-    if (!user) {
-      console.log("User not found");
-      return false;
-    }
-    
-    // Verify old password
-    const isMatch = await bcrypt.compare(oldPassword, user.password);
-    
-    if (!isMatch) {
-      console.log("Old password is incorrect");
-      return false;
-    }
-    
-    // Hash new password
-    const newHashedPassword = await bcrypt.hash(newPassword, 10);
-    
-    // Update password
-    user.password = newHashedPassword;
-    user.updatedAt = new Date();
-    
-    console.log("Password changed successfully");
-    return true;
-    
-  } catch (error) {
-    console.error("Password change failed:", error);
+  const user = users.find((u) => u.email === email);
+
+  if (!user || !(await bcrypt.compare(oldPassword, user.password))) {
+    console.log("Old password is incorrect");
     return false;
   }
+
+  user.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  console.log("Password changed");
+  return true;
 }
 
-// Function to verify password strength
-function isStrongPassword(password) {
-  const minLength = password.length >= 8;
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasNumbers = /[0-9]/.test(password);
-  const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-  
-  return minLength && hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar;
-}
-
-// Demo
 async function runDemo() {
-  console.log("=== Password Hashing Demo ===\n");
-  
-  // Register a user
-  console.log("1. Registering user...");
+  console.log("1. Register");
   await registerUser("John Doe", "john@example.com", "MySecurePass123!");
-  
-  console.log("\n2. Attempting login with correct password...");
+
+  console.log("\n2. Login with the correct password");
   await loginUser("john@example.com", "MySecurePass123!");
-  
-  console.log("\n3. Attempting login with wrong password...");
+
+  console.log("\n3. Login with a wrong password");
   await loginUser("john@example.com", "WrongPassword");
-  
-  console.log("\n4. Changing password...");
+
+  console.log("\n4. Change the password");
   await changePassword("john@example.com", "MySecurePass123!", "NewPass456!");
-  
-  console.log("\n5. Login with new password...");
+
+  console.log("\n5. Old password no longer works, new one does");
+  await loginUser("john@example.com", "MySecurePass123!");
   await loginUser("john@example.com", "NewPass456!");
-  
-  console.log("\n6. Testing password strength...");
-  const weakPasswords = ["123", "password", "12345678"];
-  const strongPasswords = ["StrongP@ss123!", "Secure#Pass456"];
-  
-  console.log("Weak passwords:");
-  weakPasswords.forEach(p => {
-    console.log(`  "${p}" -> ${isStrongPassword(p) ? "Strong" : "Weak"}`);
-  });
-  
-  console.log("\nStrong passwords:");
-  strongPasswords.forEach(p => {
-    console.log(`  "${p}" -> ${isStrongPassword(p) ? "Strong" : "Weak"}`);
-  });
+
+  console.log("\n6. What is really stored");
+  console.log(users);
 }
 
 runDemo();
@@ -541,86 +561,455 @@ Run the demo
 node passwordManager.js
 ```
 
+Output
+
+```text
+1. Register
+Registered John Doe. Stored hash: $2b$10$zjvKGdSsrW0VO...
+
+2. Login with the correct password
+Login successful. Welcome back, John Doe
+
+3. Login with a wrong password
+Login failed: invalid email or password
+
+4. Change the password
+Password changed
+
+5. Old password no longer works, new one does
+Login failed: invalid email or password
+Login successful. Welcome back, John Doe
+
+6. What is really stored
+[
+  {
+    id: 1,
+    name: 'John Doe',
+    email: 'john@example.com',
+    password: '$2b$10$ZoT88A0kUz2mAJXCSOlZjuVwHs3DJl6OztRolso69L2u2VS7pYXMm'
+  }
+]
+```
+
+The real password is nowhere in the data, only its hash. `"\n"` inside a string starts a new line, which adds an empty line before each step.
+
 ---
 
 ## bcrypt in Express (Review from Session 22)
 
-In our User model, we used bcrypt
+In Session 22, hashing happens in the User model, so no controller can forget it. Here is the model again, with three additions from this session (marked below): a 72-character limit, `passwordChangedAt`, and `changedPasswordAfter()`
+
+models/User.js
 
 ```javascript
-// models/User.js
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-userSchema.pre("save", async function(next) {
-  if (!this.isModified("password")) {
-    return next();
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, "Name is required"],
+      trim: true,
+      minlength: [2, "Name must be at least 2 characters"]
+    },
+    email: {
+      type: String,
+      required: [true, "Email is required"],
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: [/^\S+@\S+\.\S+$/, "Please enter a valid email"]
+    },
+    password: {
+      type: String,
+      required: [true, "Password is required"],
+      minlength: [6, "Password must be at least 6 characters"],
+      maxlength: [72, "Password cannot be longer than 72 characters"],
+      select: false // Never returned by queries unless asked for
+    },
+    passwordChangedAt: {
+      type: Date
+    },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user"
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  },
+  {
+    timestamps: true
   }
-  
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
+);
+
+// Hash the password before saving (Mongoose 9: no next)
+userSchema.pre("save", async function () {
+  // Only hash when the password is new or changed
+  if (!this.isModified("password")) {
+    return;
+  }
+
+  this.password = await bcrypt.hash(this.password, 10);
+
+  // A changed password (not a new user): remember when
+  if (!this.isNew) {
+    this.passwordChangedAt = Date.now() - 1000; // 1 second earlier, so the new token stays valid
+  }
 });
 
-userSchema.methods.comparePassword = async function(enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+// Check a typed password against the saved hash
+userSchema.methods.comparePassword = function (enteredPassword) {
+  return bcrypt.compare(enteredPassword, this.password);
 };
+
+// Was the password changed after this token was made?
+userSchema.methods.changedPasswordAfter = function (tokenIssuedAt) {
+  if (!this.passwordChangedAt) {
+    return false;
+  }
+  // iat is in seconds, getTime() is in milliseconds
+  return this.passwordChangedAt.getTime() / 1000 > tokenIssuedAt;
+};
+
+module.exports = mongoose.model("User", userSchema);
 ```
 
-In authController
+| Part                              | Session | Meaning                                              |
+| --------------------------------- | ------- | ---------------------------------------------------- |
+| `select: false`                   | 22      | The hash is never sent by accident                   |
+| `pre("save")` + `isModified`      | 22      | Hash only when the password is new or changed        |
+| `comparePassword()`               | 22      | `bcrypt.compare()` wrapped in a model method         |
+| `maxlength: 72`                   | 23      | bcrypt ignores everything after 72 bytes             |
+| `this.isNew`                      | 23      | `true` while a new user is saved for the first time  |
+| `passwordChangedAt`, `changedPasswordAfter()` | 23 | See [Logging Out Old Tokens](#logging-out-old-tokens-after-a-password-change) |
+
+The hook has **no `next` parameter**. Old tutorials write `async function (next) { ... next(); }`, which crashes every registration in Mongoose 9 with `TypeError: next is not a function` (Session 22).
+
+In the login controller, bcrypt is used through the model method
 
 ```javascript
-// controllers/authController.js
-const login = async (req, res) => {
-  const user = await User.findOne({ email }).select("+password");
-  
-  // bcrypt compares automatically
-  const isPasswordMatch = await user.comparePassword(password);
-  
-  if (!isPasswordMatch) {
-    return res.status(401).json({ message: "Invalid credentials" });
-  }
-};
+// controllers/authController.js (from Session 22)
+const user = await User.findOne({ email: String(email).toLowerCase() }).select("+password");
+
+if (!user || !(await user.comparePassword(String(password)))) {
+  return res.status(401).json({ success: false, message: "Invalid email or password" });
+}
 ```
+
+---
+
+## Changing a Password Safely
+
+The hash is made in the **save** hook. That has a big consequence for updates
+
+![findByIdAndUpdate skips the hook and saves the password as plain text](images/23-password-hashing-using-bcrypt/update-trap.gif)
+
+trap-demo.js
+
+```javascript
+require("dotenv").config({ quiet: true });
+const mongoose = require("mongoose");
+const User = require("./models/User");
+
+async function main() {
+  await mongoose.connect(process.env.MONGODB_URI, { dbName: "trap_demo" });
+
+  const user = await User.create({ name: "Ben", email: "ben@example.com", password: "oldpass1" });
+
+  // WRONG: the save hook does not run on updates
+  await User.findByIdAndUpdate(user._id, { password: "newpass1" });
+
+  const saved = await User.findById(user._id).select("+password");
+  console.log("Stored password:", saved.password);
+  console.log("Can Ben log in?", await saved.comparePassword("newpass1"));
+
+  await mongoose.connection.dropDatabase();
+  await mongoose.disconnect();
+}
+
+main();
+```
+
+Output
+
+```text
+Stored password: newpass1
+Can Ben log in? false
+```
+
+Two disasters at once: the password is stored as **plain text**, and Ben can no longer log in, because `compare()` expects a hash. Update queries skip save hooks (Session 19). For passwords, always load the user, change the field and call `save()`.
+
+Add a change-password route to Session 22's project
+
+controllers/authController.js (add this, and add `changePassword` to `module.exports`)
+
+```javascript
+// PATCH /api/auth/password (protected)
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: "Please provide currentPassword and newPassword" });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ success: false, message: "The new password must be different" });
+  }
+
+  // req.user has no password (select: false), so load it again with the password
+  const user = await User.findById(req.user._id).select("+password");
+
+  if (!(await user.comparePassword(String(currentPassword)))) {
+    return res.status(401).json({ success: false, message: "Current password is wrong" });
+  }
+
+  user.password = newPassword;
+  await user.save(); // the pre save hook hashes it
+
+  res.status(200).json({ success: true, message: "Password changed", token: generateToken(user._id) });
+};
+
+module.exports = { register, login, getMe, changePassword };
+```
+
+routes/authRoutes.js
+
+```javascript
+const { register, login, getMe, changePassword } = require("../controllers/authController");
+```
+
+```javascript
+router.get("/me", protect, getMe);
+router.patch("/password", protect, changePassword);
+```
+
+| Step                                  | Why                                                       |
+| ------------------------------------- | --------------------------------------------------------- |
+| Ask for the **current** password      | If someone finds your laptop logged in, they cannot change your password and lock you out |
+| `findById(...).select("+password")`   | `req.user` (from protect) was loaded without the password |
+| `user.password = newPassword` + `save()` | The hook hashes it. Validation (min 6, max 72) runs too |
+| Send a new token                      | Old tokens stop working (next section), so the user needs a fresh one |
+
+---
+
+## Logging Out Old Tokens After a Password Change
+
+People change their password when they think someone else knows it. But a JWT stays valid until it expires (Session 22). If an attacker already has a token, a new password alone does not stop them for up to 7 days.
+
+The fix uses two pieces of the model above
+
+* The save hook stores `passwordChangedAt` whenever an existing user's password changes
+* `changedPasswordAfter(iat)` checks if the password changed after the token was made (`iat` = issued at, Session 22)
+
+Add one check to `protect` in middleware/auth.js, after the user is loaded
+
+```javascript
+  // The user may have been deleted or deactivated after the token was made
+  const user = await User.findById(decoded.id);
+  if (!user || !user.isActive) {
+    return res.status(401).json({ success: false, message: "This user no longer exists or is deactivated" });
+  }
+
+  // A token made before the last password change is no longer valid
+  if (user.changedPasswordAfter(decoded.iat)) {
+    return res.status(401).json({ success: false, message: "Password was changed. Please log in again." });
+  }
+
+  req.user = user;
+  next();
+```
+
+![Tokens made before the password change are rejected, the new token works](images/23-password-hashing-using-bcrypt/old-tokens.gif)
+
+Why `Date.now() - 1000` in the hook? `iat` only counts whole seconds. Without the 1 second, the new token created right after saving could look "older" than the change and be rejected too.
+
+Test it
+
+test-password.js
+
+```javascript
+const BASE = "http://localhost:5000/api/auth";
+
+async function send(method, path, body, token) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json();
+  return { status: res.status, data };
+}
+
+function show(label, { status, data }) {
+  let info = data.message || "";
+  if (data.errors) info += " " + JSON.stringify(data.errors);
+  if (data.user) info += ` ${data.user.name}`;
+  if (data.token) info += " + token";
+  console.log(`${label.padEnd(36)} ${status} ${info.trim()}`);
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function test() {
+  const reg = await send("POST", "/register", { name: "Amy", email: "amy@example.com", password: "oldpass1" });
+  show("Register Amy", reg);
+  const oldToken = reg.data.token;
+
+  await wait(2000); // a real user changes the password later, not in the same second
+
+  show("Change: wrong current password", await send("PATCH", "/password", { currentPassword: "nope", newPassword: "newpass1" }, oldToken));
+  show("Change: same password", await send("PATCH", "/password", { currentPassword: "oldpass1", newPassword: "oldpass1" }, oldToken));
+  show("Change: new password too short", await send("PATCH", "/password", { currentPassword: "oldpass1", newPassword: "123" }, oldToken));
+
+  const changed = await send("PATCH", "/password", { currentPassword: "oldpass1", newPassword: "newpass1" }, oldToken);
+  show("Change: correct", changed);
+  const newToken = changed.data.token;
+
+  show("GET /me with the OLD token", await send("GET", "/me", null, oldToken));
+  show("GET /me with the NEW token", await send("GET", "/me", null, newToken));
+  show("Login with the old password", await send("POST", "/login", { email: "amy@example.com", password: "oldpass1" }));
+  show("Login with the new password", await send("POST", "/login", { email: "amy@example.com", password: "newpass1" }));
+}
+
+test();
+```
+
+Output
+
+```text
+Register Amy                         201 Amy + token
+Change: wrong current password       401 Current password is wrong
+Change: same password                400 The new password must be different
+Change: new password too short       400 Validation failed ["Password must be at least 6 characters"]
+Change: correct                      200 Password changed + token
+GET /me with the OLD token           401 Password was changed. Please log in again.
+GET /me with the NEW token           200 Amy
+Login with the old password          401 Invalid email or password
+Login with the new password          200 Amy + token
+```
+
+What the database stores afterwards
+
+```text
+{
+  email: 'amy@example.com',
+  password: '$2b$10$kfCF4E.6jG5B9r4AiaXp6OYH69Bkoox2f1pEgBu7xU9lV.p4HbXd6',
+  createdAt: 2026-10-09T10:11:40.775Z,
+  passwordChangedAt: 2026-10-09T10:11:42.208Z
+}
+```
+
+We also tested registering with a 73-character password: `400 Validation failed ["Password cannot be longer than 72 characters"]`.
 
 ---
 
 ## Security Best Practices
 
-Always hash passwords
+Storing passwords
 
-```text
-Never store plain text passwords
-Always use bcrypt or similar
-Salt rounds minimum 10
+| Do                                                   | Never                                              |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| bcrypt with at least 10 rounds                       | Plain text, MD5, SHA-1 or a single SHA-256         |
+| Hash in the model's save hook                        | Change passwords with `findByIdAndUpdate`          |
+| `select: false` on the password field                | Send the hash to the client                        |
+| `await bcrypt.hash()` (or native bcrypt)             | `hashSync()` inside a route                        |
+| Limit passwords to 72 characters                     | Invent your own hashing method                     |
+
+Password rules
+
+* **Length beats complexity.** `correct-horse-battery-staple` is far stronger than `P@ss1`. A minimum of 8 characters is a good start (we used 6 to keep the examples short)
+* Reject very common passwords like `123456`, `password` and `qwerty`
+* Do not force users to change passwords every month. People just add `1`, `2`, `3`
+
+Around the login
+
+* Rate limit the login route (Session 14) to stop password guessing
+* Use HTTPS in production, or the password travels as readable text
+* Same message for wrong email and wrong password (Session 22)
+* Never log passwords, never put them in URLs, never send them back in responses
+* Two-factor authentication for sensitive apps
+
+---
+
+## Beginner Mistakes
+
+### Mistake 1
+
+Comparing hashes with `===`.
+
+```javascript
+const hash = await bcrypt.hash(typed, 10);
+if (hash === user.password) { ... } // never true
 ```
 
-Use strong passwords
+Every hash has a new salt. Use `bcrypt.compare(typed, user.password)`.
 
-```text
-Minimum 8 characters
-Mix of uppercase and lowercase
-Include numbers
-Include special characters
-```
+---
 
-Additional security
+### Mistake 2
 
-```text
-Rate limit login attempts
-Use HTTPS in production
-Implement account lockout after failed attempts
-Use two-factor authentication for sensitive apps
-```
+Forgetting `await`.
 
-What never to do
+`bcrypt.compare()` returns a Promise. `if (bcrypt.compare(...))` is always true, because a Promise object is truthy, so **every password is accepted**.
 
-```text
-Don't use MD5 or SHA1 for passwords (too fast)
-Don't create your own hashing algorithm
-Don't store passwords in logs
-Don't send passwords in URLs
-Don't log passwords in console
-```
+---
+
+### Mistake 3
+
+Hashing in the controller and in the hook.
+
+The password gets hashed twice, and no login works anymore. Hash in one place: the hook.
+
+---
+
+### Mistake 4
+
+Changing the password with `findByIdAndUpdate`.
+
+The hook does not run, the password is stored as plain text, and the user is locked out.
+
+---
+
+### Mistake 5
+
+Forgetting `isModified("password")` in the hook.
+
+Changing only the name would hash the existing hash again, and the user is locked out.
+
+---
+
+### Mistake 6
+
+Forgetting `.select("+password")` before `comparePassword()`.
+
+`this.password` is `undefined`, and bcrypt throws `Illegal arguments: string, undefined`, a 500.
+
+---
+
+### Mistake 7
+
+Using `hashSync()` in a server.
+
+Every other user waits while it runs (270 ms per hash in our test).
+
+---
+
+### Mistake 8
+
+Very high rounds "for extra safety".
+
+14 rounds took over 1 second per login in our test. Attackers could also flood the login route to keep your CPU busy.
+
+---
+
+### Mistake 9
+
+Using `users.length + 1` as an id.
+
+After deleting a user, two users can get the same id. Use a counter, or let MongoDB create ids.
 
 ---
 
@@ -628,44 +1017,31 @@ Don't log passwords in console
 
 ### Exercise 1
 
-Create a function that hashes a password and prints
-
-```text
-Original password
-Salt rounds used
-Generated hash
-Time taken to hash
-```
+Write a script that hashes the same password with 8, 10, 12 and 14 rounds and prints the time and the `getRounds()` value of each hash
 
 ### Exercise 2
 
-Create a function that tests different salt rounds
-
-Test with 8, 10, 12, 14
-
-Measure time for each
+Add a `confirmPassword` field to register. If it does not match `password`, answer 400 before creating the user. Do not save `confirmPassword`
 
 ### Exercise 3
 
-Create a password strength meter
-
-Return score from 0 to 100
-
-Based on length, character types, etc.
+Make a list of 20 common passwords (`123456`, `password`, `qwerty`, ...). Reject them at register and at change-password with a clear message
 
 ### Exercise 4
 
-Add password confirmation to registration
-
-Check if password and confirmPassword match
+When a user logs in successfully and `bcrypt.getRounds(user.password)` is lower than 12, hash the typed password with 12 rounds and save it. Check in Compass that the hash now starts with `$2b$12$`
 
 ### Exercise 5
 
-Implement forgot password feature
+Change `require("bcryptjs")` to `require("bcrypt")` in the User model. Run your test script again. Does anything else need to change?
 
-Generate reset token
+### Exercise 6
 
-Hash and save new password
+Add an admin route `PATCH /api/auth/users/:id/password` that sets a new password for any user. Use find + `save()`. Check that the user's old token stops working
+
+### Exercise 7
+
+Run trap-demo.js yourself and look at the user in Compass. Then fix it so the password is hashed
 
 ---
 
@@ -673,57 +1049,59 @@ Hash and save new password
 
 ### Why do we hash passwords
 
-To protect passwords if database is compromised
+So that a stolen database does not reveal the real passwords, and users who reuse passwords are not exposed on other sites
 
 ### What is the difference between hashing and encryption
 
-Hashing is one-way, cannot be reversed
-Encryption is two-way, can be decrypted with key
+Hashing is one-way and cannot be reversed. Encryption is two-way and can be decrypted with a key
+
+### Why is bcrypt better than MD5 or SHA-256 for passwords
+
+bcrypt is slow on purpose and adds a random salt. MD5 and SHA are very fast (hundreds of thousands to billions of guesses per second) and give the same hash for the same password
 
 ### What is a salt in bcrypt
 
-Random data added to password before hashing to make each hash unique
+Random data mixed with the password before hashing, so the same password gives a different hash every time. It defeats rainbow tables
+
+### Where is the salt stored
+
+Inside the hash string itself: the 22 characters after the rounds. It is not secret
 
 ### What are salt rounds in bcrypt
 
-Number of iterations used to hash the password, higher = more secure but slower
-
-### Why is bcrypt better than MD5 or SHA
-
-bcrypt is slow by design and includes salt automatically
-MD5 and SHA are too fast for passwords
+The cost factor. The work is 2 to the power of rounds, so each +1 doubles the time. 10 to 12 is common
 
 ### Can two identical passwords have different bcrypt hashes
 
 Yes
-Because of random salt added to each hash
+Because each hash gets its own random salt
 
 ### How does bcrypt compare work
 
-It extracts salt from stored hash, hashes input password with same salt, then compares
+It reads the salt and rounds from the stored hash, hashes the typed password with them, and checks if the results are equal
 
-### What happens if you lose the salt
+### Why can't you compare by hashing again and using ===
 
-You cannot verify the password
-This is why salt is stored with the hash
+A new hash gets a new salt, so it is always different from the stored one
 
----
+### What is the difference between bcrypt and bcryptjs
 
-## Summary
+bcrypt is native C++ and runs in the thread pool (faster, does not block). bcryptjs is plain JavaScript (easy to install, runs on the main thread). They make compatible hashes
 
-In this session, you learned
+### Why should you not use hashSync in a server
 
-* Why password hashing is important
-* What bcrypt is and how it works
-* Difference between hashing and encryption
-* How to hash passwords with bcrypt
-* How to compare passwords with bcrypt
-* What salt rounds are and how to choose them
-* How to implement password hashing in Express
-* Password security best practices
+It blocks the single main thread, so no other request is handled until the hash is done
 
-Never store plain text passwords
+### What is the 72-byte limit
 
-Always use bcrypt
+bcrypt only uses the first 72 bytes of a password. Longer passwords are cut off, so limit the length in validation
+
+### Why does findByIdAndUpdate not hash the password
+
+Update queries do not run save hooks. The password is stored as plain text. Use find + save
+
+### How do you invalidate old tokens after a password change
+
+Store passwordChangedAt and, in the protect middleware, reject tokens whose iat is older than that time
 
 ---
