@@ -347,14 +347,14 @@ Save this connection string in your .env file (Session 16)
 ![Each part of the connection string has a job](images/17-mongodb-introduction/connection-string.gif)
 
 ```text
-mongodb+srv://admin:secret123@cluster0.abc123.mongodb.net/school?retryWrites=true
+mongodb+srv://admin:yourpassword@cluster0.abc123.mongodb.net/school?retryWrites=true
 ```
 
 | Part                              | Meaning                                          |
 | --------------------------------- | ------------------------------------------------ |
 | `mongodb+srv://`                  | Protocol. Atlas uses `+srv`, local uses `mongodb://` |
 | `admin`                           | Database username                                |
-| `secret123`                       | Database password                                |
+| `yourpassword`                    | Database password                                |
 | `cluster0.abc123.mongodb.net`     | Address of your cluster                          |
 | `/school`                         | Default database (optional)                      |
 | `?retryWrites=true`               | Extra options (like a URL query string, Session 09) |
