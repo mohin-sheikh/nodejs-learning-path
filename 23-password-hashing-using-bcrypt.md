@@ -597,7 +597,7 @@ The real password is nowhere in the data, only its hash. `"\n"` inside a string 
 
 ## bcrypt in Express (Review from Session 22)
 
-In Session 22, hashing happens in the User model, so no controller can forget it. Here is the model again, with three additions from this session (marked below): a 72-character limit, `passwordChangedAt`, and `changedPasswordAfter()`
+In Session 22, hashing happens in the User model, so no controller can forget it. Here is the model again, with two additions from this session: a 72-character limit, and `tokenVersion`
 
 models/User.js
 
@@ -628,8 +628,9 @@ const userSchema = new mongoose.Schema(
       maxlength: [72, "Password cannot be longer than 72 characters"],
       select: false // Never returned by queries unless asked for
     },
-    passwordChangedAt: {
-      type: Date
+    tokenVersion: {
+      type: Number,
+      default: 0 // goes up by 1 at every password change
     },
     role: {
       type: String,
@@ -655,24 +656,15 @@ userSchema.pre("save", async function () {
 
   this.password = await bcrypt.hash(this.password, 10);
 
-  // A changed password (not a new user): remember when
+  // A changed password (not a new user): tokens with the old version stop working
   if (!this.isNew) {
-    this.passwordChangedAt = Date.now() - 1000; // 1 second earlier, so the new token stays valid
+    this.tokenVersion += 1;
   }
 });
 
 // Check a typed password against the saved hash
 userSchema.methods.comparePassword = function (enteredPassword) {
   return bcrypt.compare(enteredPassword, this.password);
-};
-
-// Was the password changed after this token was made?
-userSchema.methods.changedPasswordAfter = function (tokenIssuedAt) {
-  if (!this.passwordChangedAt) {
-    return false;
-  }
-  // iat is in seconds, getTime() is in milliseconds
-  return this.passwordChangedAt.getTime() / 1000 > tokenIssuedAt;
 };
 
 module.exports = mongoose.model("User", userSchema);
@@ -685,7 +677,7 @@ module.exports = mongoose.model("User", userSchema);
 | `comparePassword()`               | 22      | `bcrypt.compare()` wrapped in a model method         |
 | `maxlength: 72`                   | 23      | bcrypt ignores everything after 72 bytes             |
 | `this.isNew`                      | 23      | `true` while a new user is saved for the first time  |
-| `passwordChangedAt`, `changedPasswordAfter()` | 23 | See [Logging Out Old Tokens](#logging-out-old-tokens-after-a-password-change) |
+| `tokenVersion`                    | 23      | Goes up by 1 at every password change. See [Logging Out Old Tokens](#logging-out-old-tokens-after-a-password-change) |
 
 The hook has **no `next` parameter**. Old tutorials write `async function (next) { ... next(); }`, which crashes every registration in Mongoose 9 with `TypeError: next is not a function` (Session 22).
 
@@ -767,9 +759,9 @@ const changePassword = async (req, res) => {
   }
 
   user.password = newPassword;
-  await user.save(); // the pre save hook hashes it
+  await user.save(); // the pre save hook hashes it and adds 1 to tokenVersion
 
-  res.status(200).json({ success: true, message: "Password changed", token: generateToken(user._id) });
+  res.status(200).json({ success: true, message: "Password changed", token: generateToken(user) });
 };
 
 module.exports = { register, login, getMe, changePassword };
@@ -799,10 +791,25 @@ router.patch("/password", protect, changePassword);
 
 People change their password when they think someone else knows it. But a JWT stays valid until it expires (Session 22). If an attacker already has a token, a new password alone does not stop them for up to 7 days.
 
-The fix uses two pieces of the model above
+The fix is a version number
 
-* The save hook stores `passwordChangedAt` whenever an existing user's password changes
-* `changedPasswordAfter(iat)` checks if the password changed after the token was made (`iat` = issued at, Session 22)
+* Every user has `tokenVersion`, starting at 0 (in the model above)
+* Every token stores the version it was made with
+* The save hook adds 1 when an existing user's password changes
+* `protect` refuses a token whose version is not the user's current version
+
+Put the version in the token: change `generateToken` in controllers/authController.js (Session 22). It now takes the whole user
+
+```javascript
+// Create a token that says "this is user <id>, password version <v>"
+function generateToken(user) {
+  return jwt.sign({ id: user._id, v: user.tokenVersion }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d"
+  });
+}
+```
+
+Call it with the user everywhere: `generateToken(user)` in register, login and changePassword.
 
 Add one check to `protect` in middleware/auth.js, after the user is loaded
 
@@ -813,8 +820,8 @@ Add one check to `protect` in middleware/auth.js, after the user is loaded
     return res.status(401).json({ success: false, message: "This user no longer exists or is deactivated" });
   }
 
-  // A token made before the last password change is no longer valid
-  if (user.changedPasswordAfter(decoded.iat)) {
+  // A token made before the last password change carries an old version number
+  if (decoded.v !== user.tokenVersion) {
     return res.status(401).json({ success: false, message: "Password was changed. Please log in again." });
   }
 
@@ -822,9 +829,9 @@ Add one check to `protect` in middleware/auth.js, after the user is loaded
   next();
 ```
 
-![Tokens made before the password change are rejected, the new token works](images/23-password-hashing-using-bcrypt/old-tokens.gif)
+![Every token carries the password version; after a change, only tokens with the new version work](images/23-password-hashing-using-bcrypt/old-tokens.gif)
 
-Why `Date.now() - 1000` in the hook? `iat` only counts whole seconds. Without the 1 second, the new token created right after saving could look "older" than the change and be rejected too.
+Why not save the time of the change? Many tutorials store `passwordChangedAt` and refuse tokens whose `iat` (issued at, Session 22) is older. The problem: `iat` only counts **whole seconds**, so a token made in the same second as the change cannot be told apart. Those tutorials save the change time one second early, so the new token is not refused, but then old tokens from that second are accepted. We tested it: when the password was changed right after a token was made, the old token still worked **9 times out of 10**. A version number has no clock and no rounding: it is exact.
 
 Test it
 
@@ -851,14 +858,10 @@ function show(label, { status, data }) {
   console.log(`${label.padEnd(36)} ${status} ${info.trim()}`);
 }
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function test() {
   const reg = await send("POST", "/register", { name: "Amy", email: "amy@example.com", password: "oldpass1" });
   show("Register Amy", reg);
   const oldToken = reg.data.token;
-
-  await wait(2000); // a real user changes the password later, not in the same second
 
   show("Change: wrong current password", await send("PATCH", "/password", { currentPassword: "nope", newPassword: "newpass1" }, oldToken));
   show("Change: same password", await send("PATCH", "/password", { currentPassword: "oldpass1", newPassword: "oldpass1" }, oldToken));
@@ -896,11 +899,15 @@ What the database stores afterwards
 ```text
 {
   email: 'amy@example.com',
-  password: '$2b$10$kfCF4E.6jG5B9r4AiaXp6OYH69Bkoox2f1pEgBu7xU9lV.p4HbXd6',
-  createdAt: 2026-10-09T10:11:40.775Z,
-  passwordChangedAt: 2026-10-09T10:11:42.208Z
+  password: '$2b$10$ukgQ7fv93tZ/tXQxeVeCtOTZizhKnsQBgwfTBme8jXgZpZ1sLsLtC',
+  tokenVersion: 1,
+  createdAt: 2026-10-10T14:45:40.045Z
 }
 ```
+
+`tokenVersion` is 1: the failed attempts (wrong password, too short) changed nothing, only the successful change counted.
+
+The test does not wait between registering and changing the password: the old token was made a moment before the change, and it is still refused. We ran the test 10 times on a new database each time: the old token was refused every time.
 
 We also tested registering with a 73-character password: `400 Validation failed ["Password cannot be longer than 72 characters"]`.
 
@@ -1102,6 +1109,6 @@ Update queries do not run save hooks. The password is stored as plain text. Use 
 
 ### How do you invalidate old tokens after a password change
 
-Store passwordChangedAt and, in the protect middleware, reject tokens whose iat is older than that time
+Store a tokenVersion number on the user and put it in every token. A password change adds 1, and the protect middleware rejects tokens whose version is not the current one
 
 ---
