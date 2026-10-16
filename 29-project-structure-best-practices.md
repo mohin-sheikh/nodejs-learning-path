@@ -19,6 +19,7 @@
 * [Constants](#constants)
 * [Validators](#validators)
 * [catchAsync](#catchasync)
+* [Validating Requests with Joi](#validating-requests-with-joi)
 * [Naming Conventions](#naming-conventions)
 * [Grow the Structure When You Need It](#grow-the-structure-when-you-need-it)
 * [Beginner Mistakes](#beginner-mistakes)
@@ -795,7 +796,7 @@ Status code constants are optional: every web developer knows what `404` means, 
 
 ## Validators
 
-Small functions that answer yes or no. Session 30 uses these:
+Small functions that answer yes or no, about one value:
 
 src/utils/validators.js
 
@@ -923,6 +924,519 @@ Ran all test suites.
 
 ---
 
+## Validating Requests with Joi
+
+Our API checks data in two places: `pickFields` drops the fields a client may not set (Session 20), and the Mongoose schema checks the values when a document is saved (Session 19). That works, but it leaves gaps
+
+| Gap                                     | Example                                                           |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| Mongoose only checks data that is saved | A login saves nothing. `?page=abc` in a query string is never saved |
+| Controllers get unchecked data          | Every controller needs `req.body \|\| {}`, `typeof` checks and `pickFields` |
+| One set of rules for the whole model    | POST needs every field, PATCH needs at least one                  |
+
+Real projects check every request **at the door**, before the controller runs. You write the rules once, as a **schema**, and one small middleware checks each request against it. The library most often used for this with Express is **Joi**. You will also meet Zod and express-validator: the idea is the same.
+
+![validate() stops a bad request with 400 and a list of every problem; a good request goes on to the controller with clean values](images/29-project-structure-best-practices/joi-gate.gif)
+
+### Installing Joi
+
+```bash
+npm install joi
+```
+
+Tested version: joi 18.2.9.
+
+### Your First Schema
+
+joi-first.js
+
+```javascript
+const Joi = require("joi");
+
+// The rules: what a student must look like
+const studentSchema = Joi.object({
+  name: Joi.string().trim().min(2).required(),
+  age: Joi.number().integer().min(18).max(60).required(),
+  email: Joi.string().trim().lowercase().email().required()
+});
+
+// 1. Good data, typed a bit carelessly
+const good = studentSchema.validate({ name: "  Sara Khan ", age: "21", email: "SARA@Example.com" });
+console.log(good);
+
+// 2. Bad data: Joi stops at the first problem
+const bad = studentSchema.validate({ name: "S", age: 12, email: "nope" });
+console.log(bad.error.message);
+
+// 3. Bad data with abortEarly: false: every problem
+const all = studentSchema.validate({ name: "S", age: 12, email: "nope" }, { abortEarly: false });
+console.log(all.error.details.map((detail) => detail.message));
+```
+
+```bash
+node joi-first.js
+```
+
+Output
+
+```text
+{ value: { name: 'Sara Khan', age: 21, email: 'sara@example.com' } }
+"name" length must be at least 2 characters long
+[
+  '"name" length must be at least 2 characters long',
+  '"age" must be greater than or equal to 18',
+  '"email" must be a valid email'
+]
+```
+
+`schema.validate(data)` never throws. It returns an object: `value` holds the data, and `error` is there only when something is wrong. Look at `value` in the first answer: Joi also **cleaned** the data. The spaces are gone, the text `"21"` became the number `21`, and the email is in lowercase.
+
+| Rule                           | Meaning                                                           |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `Joi.object({ ... })`          | An object with these keys                                         |
+| `Joi.string()`                 | Text only. An object like `{ "$gt": "" }` is refused (NoSQL injection, Session 22) |
+| `.trim()`, `.lowercase()`      | Clean the text before it is checked                               |
+| `.min(2)`, `.max(50)`          | The length of a text, or the size of a number                     |
+| `Joi.number()`                 | A number. The text `"21"` (from a form or a query string) becomes `21` |
+| `.integer()`                   | A whole number: `21.5` is refused                                 |
+| `.email()`                     | An email address. Safe and fast: the 100,001-character test from [Validators](#validators) took 0.3 ms |
+| `.valid("a", "b")`             | Only these values, like `enum` in Mongoose                        |
+| `.required()`                  | The key must be there. Without it, a key is optional              |
+| `.default(1)`                  | The value to use when the key is missing                          |
+| `.allow("")`, `.allow(null)`   | Also accept an empty text, or null                                |
+
+The second argument of `validate()` takes options
+
+| Option                               | Default | What it does                                              |
+| ------------------------------------ | ------- | --------------------------------------------------------- |
+| `abortEarly`                         | `true`  | Stop at the first problem. With `false`, every problem is reported |
+| `stripUnknown`                       | `false` | Remove keys the schema does not list. Without it, an extra key is an error: `"role" is not allowed` |
+| `convert`                            | `true`  | Turn `"21"` into `21`, trim, lowercase. With `false`, `"21"` is refused: `must be a number` |
+| `errors: { wrap: { label: false } }` | quotes  | `name is required` instead of `"name" is required`        |
+
+We tested how Joi answers tricky input (messages without quotes, as our middleware shows them)
+
+| Input                                | Joi's answer                                              |
+| ------------------------------------ | --------------------------------------------------------- |
+| `age: "21"`                          | Accepted, becomes `21`                                    |
+| `age: "abc"`                         | `age must be a number`                                    |
+| `age: 21.5`                          | `age must be an integer`                                  |
+| `age: true`                          | `age must be a number`                                    |
+| `name: "   "`                        | `name is not allowed to be empty` (trimmed first)         |
+| `email: { "$gt": "" }`               | `email must be a string`                                  |
+| `email: "sara+news@b.info"`          | Accepted                                                  |
+| `email: "sara@localhost"`            | `email must be a valid email`                             |
+| `role: "admin"`, not in the schema   | `role is not allowed`, or removed with `stripUnknown`     |
+| No body at all (`undefined`)         | **Accepted**: there is nothing to check. Our middleware turns it into `{}` |
+
+### Rules for the Student API
+
+The rules get their own folder, one file per resource
+
+```text
+src/
+├── middleware/
+│   └── validate.js               new: checks a request against a schema
+└── validations/
+    └── studentValidation.js      new: the rules for students
+```
+
+src/validations/studentValidation.js
+
+```javascript
+const Joi = require("joi");
+
+// The rules for each field, written once (the same rules as models/Student.js)
+const name = Joi.string().trim().min(2);
+const age = Joi.number().integer().min(18).max(60);
+const email = Joi.string().trim().lowercase().email();
+
+// POST /api/students: every field is required
+const createStudentSchema = Joi.object({
+  name: name.required(),
+  age: age.required(),
+  email: email.required()
+});
+
+// PATCH /api/students/:id: any of the fields, but at least one
+const updateStudentSchema = Joi.object({ name, age, email })
+  .min(1)
+  .messages({ "object.min": "Send at least one field to update" });
+
+module.exports = { createStudentSchema, updateStudentSchema };
+```
+
+| Part                                       | Why                                                        |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| The field rules are written once           | POST and PATCH share them, so a rule changes in one place  |
+| `.required()` only in `createStudentSchema` | A PATCH may send just one field                           |
+| `.min(1)`                                  | A PATCH without any known field has nothing to update      |
+| `.messages({ "object.min": ... })`         | Your own text instead of Joi's `value must have at least 1 key` |
+
+The project now has two kinds of "validators". They do different jobs
+
+|           | `src/utils/validators.js`      | `src/validations/`                          |
+| --------- | ------------------------------ | ------------------------------------------- |
+| Checks    | One value: yes or no           | A whole request: every field, with messages |
+| Used by   | Your own code                  | `validate()` in the routes                  |
+
+### The validate Middleware
+
+src/middleware/validate.js
+
+```javascript
+const AppError = require("../utils/AppError");
+
+// validate(schema) checks req.body before the controller runs.
+// validate(schema, "query") checks the query string instead.
+const validate = (schema, source = "body") => (req, res, next) => {
+  const { error, value } = schema.validate(req[source] || {}, {
+    abortEarly: false,                  // report every problem, not only the first one
+    stripUnknown: true,                 // drop fields the schema does not list (like pickFields)
+    errors: { wrap: { label: false } }  // name is required, not "name" is required
+  });
+
+  if (error) {
+    // The same answer as a Mongoose ValidationError (Session 24)
+    const appError = new AppError("Validation failed", 400);
+    appError.errors = error.details.map((detail) => detail.message);
+    return next(appError);
+  }
+
+  // Pass the clean values on: trimmed, "21" turned into 21, unknown fields gone
+  if (source === "query") {
+    req.validatedQuery = value; // Express 5: req.query cannot be replaced
+  } else {
+    req.body = value;
+  }
+
+  next();
+};
+
+module.exports = validate;
+```
+
+| Part                                          | Why                                                     |
+| --------------------------------------------- | ------------------------------------------------------- |
+| `validate(schema)` returns a middleware       | A middleware factory, like `requireRole` in Session 14  |
+| `req[source] \|\| {}`                         | No body (Express 5 without the JSON header) becomes `{}`, so the required fields are reported. `undefined` would pass |
+| `abortEarly: false`                           | The client sees every problem at once                   |
+| `stripUnknown: true`                          | Fields like `role` or `createdAt` never reach the controller |
+| `new AppError("Validation failed", 400)` with `errors` | The same answer as a Mongoose ValidationError (Session 24): one error format for the client |
+| `req.body = value`                            | The controller gets the clean values                    |
+| `req.validatedQuery`                          | For the query string, see [Checking the Query String](#checking-the-query-string) |
+
+### Using validate in the Routes
+
+src/routes/studentRoutes.js (the changed lines)
+
+```javascript
+const validate = require("../middleware/validate");
+const { createStudentSchema, updateStudentSchema } = require("../validations/studentValidation");
+```
+
+```javascript
+router.route("/")
+  .get(getAllStudents)
+  .post(validate(createStudentSchema), createStudent);
+
+router.route("/:id")
+  .get(getStudent)
+  .patch(validate(updateStudentSchema), updateStudent)
+  .delete(deleteStudent);
+```
+
+`validate()` runs before the controller. When it calls `next(error)`, the controller never runs and the error middleware sends the 400.
+
+src/controllers/studentController.js (the changed lines): `pickFields` is gone
+
+```javascript
+// POST /api/students
+const createStudent = async (req, res) => {
+  // req.body was checked and cleaned by validate() in the route. Duplicate email → 409
+  const student = await Student.create(req.body);
+  logger.info("Student created", { requestId: req.id, studentId: student._id });
+  res.status(201).json({ success: true, data: student });
+};
+
+// PATCH /api/students/:id
+const updateStudent = async (req, res) => {
+  const student = await Student.findByIdAndUpdate(req.params.id, req.body, {
+    returnDocument: "after",
+    runValidators: true
+  });
+
+  if (!student) {
+    throw new AppError("Student not found", 404);
+  }
+
+  res.status(200).json({ success: true, data: student });
+};
+```
+
+`pickFields` can go because `validate()` only lets the fields of the schema through. That makes the routes important: a route without `validate()` would give the controller the raw body ([Mistake 13](#mistake-13)).
+
+`runValidators: true` stays. Mongoose still checks every save, as a second line of defense.
+
+### The Answer the Client Gets
+
+`POST /api/students` with `{ "name": "S", "age": 12, "email": "nope" }`, in development mode (stack not shown here)
+
+```text
+{
+  "success": false,
+  "status": "fail",
+  "message": "Validation failed",
+  "errors": [
+    "name length must be at least 2 characters long",
+    "age must be greater than or equal to 18",
+    "email must be a valid email"
+  ],
+  ...
+}
+```
+
+And a body typed carelessly, with a field the client may not set: `{ "name": "  Sara Khan ", "age": "21", "email": "SARA@Example.com", "role": "admin" }`
+
+```text
+201
+{
+  "success": true,
+  "data": {
+    "name": "Sara Khan",
+    "age": 21,
+    "email": "sara@example.com",
+    "_id": "6ad210f191d28f02eca1d9ad",
+    "createdAt": "2026-10-16T11:56:33.067Z",
+    "updatedAt": "2026-10-16T11:56:33.067Z",
+    "__v": 0
+  }
+}
+```
+
+`role` is gone, and the values were clean before Mongoose saw them. The status is 201: careless typing is not an error, wrong data is.
+
+### The Tests Notice the Change
+
+Run the tests from Session 28 again
+
+```text
+FAIL tests/students.test.js
+  ● POST /api/students › answers 400 with every validation message
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected value: "Age must be at least 18"
+    Received array: ["name length must be at least 2 characters long", "age must be greater than or equal to 18", "email must be a valid email"]
+
+  ● PATCH /api/students/:id › runs the validators on update
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Array [
+    -   "Age must be at least 18",
+    +   "age must be greater than or equal to 18",
+      ]
+
+Test Suites: 1 failed, 3 passed, 4 total
+Tests:       2 failed, 20 passed, 22 total
+```
+
+The API still answers 400, but now Joi answers first, with its own words, and Mongoose never sees the bad data. Update the two tests
+
+tests/students.test.js (the changed lines)
+
+```javascript
+    expect(res.body.errors).toContain("age must be greater than or equal to 18");
+```
+
+```javascript
+  test("checks the data on update", async () => {
+    const student = await Student.create(sara);
+
+    const res = await request(app)
+      .patch(`/api/students/${student._id}`)
+      .send({ age: 15 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(["age must be greater than or equal to 18"]);
+  });
+```
+
+and add tests for what Joi does better (tests/students.test.js, in the POST and PATCH groups)
+
+```javascript
+  test("refuses an object where text is expected", async () => {
+    const res = await request(app)
+      .post("/api/students")
+      .send({ ...sara, email: { $gt: "" } });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(["email must be a string"]);
+  });
+```
+
+```javascript
+  test("answers 400 when no known field is sent", async () => {
+    const student = await Student.create(sara);
+
+    const res = await request(app)
+      .patch(`/api/students/${student._id}`)
+      .send({ role: "admin" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(["Send at least one field to update"]);
+  });
+```
+
+tests/validate.test.js checks the middleware alone, with a fake request (a unit test, Session 28)
+
+```javascript
+const Joi = require("joi");
+const validate = require("../src/middleware/validate");
+const AppError = require("../src/utils/AppError");
+
+const schema = Joi.object({
+  name: Joi.string().trim().min(2).required(),
+  age: Joi.number().min(18).required()
+});
+
+// Run the middleware with a fake request, and return what it passed to next()
+function run(middleware, req) {
+  let passed;
+  middleware(req, {}, (err) => {
+    passed = err;
+  });
+  return passed;
+}
+
+test("passes the clean values on in req.body", () => {
+  const req = { body: { name: "  Sara ", age: "21", role: "admin" } };
+
+  expect(run(validate(schema), req)).toBeUndefined(); // next() without an error
+  expect(req.body).toEqual({ name: "Sara", age: 21 }); // trimmed, a number, role dropped
+});
+
+test("sends every problem to the error middleware", () => {
+  const err = run(validate(schema), { body: { name: "S", age: 12 } });
+
+  expect(err).toBeInstanceOf(AppError);
+  expect(err.statusCode).toBe(400);
+  expect(err.errors).toEqual([
+    "name length must be at least 2 characters long",
+    "age must be greater than or equal to 18"
+  ]);
+});
+
+test("a missing body counts as an empty one", () => {
+  const err = run(validate(schema), { body: undefined });
+
+  expect(err.errors).toEqual(["name is required", "age is required"]);
+});
+
+test("checked query values go to req.validatedQuery", () => {
+  const querySchema = Joi.object({ page: Joi.number().integer().min(1).default(1) });
+  const req = { query: { page: "2" } };
+
+  run(validate(querySchema, "query"), req);
+
+  expect(req.validatedQuery).toEqual({ page: 2 });
+});
+```
+
+```text
+> student-api@1.0.0 test
+> jest
+
+PASS tests/AppError.test.js
+PASS tests/validate.test.js
+PASS tests/health.test.js
+PASS tests/avatar.test.js
+PASS tests/students.test.js
+
+Test Suites: 5 passed, 5 total
+Tests:       28 passed, 28 total
+Snapshots:   0 total
+Time:        2.884 s, estimated 3 s
+Ran all test suites.
+```
+
+### Joi or Mongoose? Both
+
+| Check                                         | Joi: at the door            | Mongoose: when saving          |
+| --------------------------------------------- | --------------------------- | ------------------------------ |
+| Runs                                          | Before the controller, for each request | When a document is saved |
+| Login, search, query strings                  | Yes                         | No, nothing is saved           |
+| Different rules for POST and PATCH            | Yes                         | One schema for everything      |
+| Is this email already used?                   | No, only the database knows | Yes: the unique index, 409     |
+| Data that does not come from a request (seed scripts, `make-admin.js` in Session 22) | No | Yes |
+
+![Joi stops bad requests at the door with 400; Mongoose checks every save, so a duplicate email gets 409 and a script is checked too](images/29-project-structure-best-practices/joi-vs-mongoose.gif)
+
+Keep both. Joi gives the client clear 400 answers before any work is done. Mongoose protects the data in the database, wherever it comes from.
+
+### Checking the Query String
+
+Everything in a query string is text: `?page=2` gives `req.query.page === "2"`. Joi turns it into a number and fills in defaults. Session 30 checks `GET /api/tasks` like this (`status` is the rule `Joi.string().valid(...TASK_STATUSES)` from the same file)
+
+```javascript
+// GET /api/tasks?status=pending&page=1&limit=10
+const taskQuerySchema = Joi.object({
+  status,
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10)
+});
+```
+
+```javascript
+  .get(validate(taskQuerySchema, "query"), getTasks)
+```
+
+| Request                       | `req.validatedQuery`                 |
+| ----------------------------- | ------------------------------------ |
+| `/api/tasks`                  | `{ page: 1, limit: 10 }`             |
+| `/api/tasks?page=2&limit=5`   | `{ page: 2, limit: 5 }`              |
+| `/api/tasks?page=abc&limit=500` | 400: `page must be a number`, `limit must be less than or equal to 100` |
+
+The controller then reads `req.validatedQuery`, not `req.query`. Why not simply put the clean values back into `req.query`? We tried it
+
+query-demo.js
+
+```javascript
+const express = require("express");
+const app = express();
+
+app.get("/students", (req, res) => {
+  req.query = { page: 2 }; // try to replace the query with a clean copy
+  res.json({ query: req.query, type: typeof req.query.page });
+});
+
+app.listen(3000);
+```
+
+`GET http://localhost:3000/students?page=5` answered
+
+```text
+{"query":{"page":"5"},"type":"string"}
+```
+
+The assignment did nothing: `page` is still the text `"5"`. In Express 5, `req.query` is a **getter**: it reads the URL again every time you use it. Writing to it is ignored without a sound. With `"use strict"` at the top of the file (ES modules are always strict) the same line throws
+
+```text
+TypeError: Cannot set property query of #<IncomingMessage> which has only a getter
+```
+
+That is why `validate()` puts the clean query into its own property, `req.validatedQuery`. `req.body` is a normal property, so it can be replaced.
+
+![Writing to req.query bounces off and page stays the text "5"; req.validatedQuery receives the clean object with page 5 as a number](images/29-project-structure-best-practices/query-readonly.gif)
+
+Session 30 uses `validate()` on every route that receives data: register, login, password change, tasks and the profile.
+
+---
+
 ## Naming Conventions
 
 | What                     | Convention              | Example                          |
@@ -955,7 +1469,7 @@ Do not create every folder on day one. An empty `services/` folder "just in case
 | `config/`                | When settings are read in more than one file                |
 | `services/`              | When a controller does work that is not about HTTP: sending emails, talking to a payment company, uploading to cloud storage. The controller stays short, and the service can be reused and tested alone |
 | `constants/`             | When the same fixed value appears in several files          |
-| `validation/`            | When validation rules become long (Session 30)              |
+| `validations/`           | When routes check their input with Joi: one file of rules per resource |
 | `features/` folders      | When folder by type becomes hard to read (many features)    |
 
 A good structure is one that your team understands. Consistency matters more than any particular layout.
@@ -1044,6 +1558,46 @@ Run `npm test` before and after moving code.
 
 ---
 
+### Mistake 11
+
+`validate()` without `abortEarly: false`.
+
+Joi stops at the first problem. The client fixes the name, sends again, and only then learns that the age is wrong too. Report every problem at once.
+
+---
+
+### Mistake 12
+
+`.required()` in a shared field rule.
+
+`const name = Joi.string().trim().min(2).required();` is used by the PATCH schema too, so `PATCH { "age": 23 }` answers `name is required`. Add `.required()` only in the create schema.
+
+---
+
+### Mistake 13
+
+Removing `pickFields`, but forgetting `validate()` on one route.
+
+The controller saves the raw body. We tested it: `avatar` and `createdAt` from the body were saved as `/uploads/avatars/hack.png` and `2000-01-01T00:00:00.000Z`. Every route that receives data needs its schema.
+
+---
+
+### Mistake 14
+
+`req.query = value` in Express 5.
+
+Nothing happens: `page` stays the text `"5"`. In strict mode it throws `TypeError: Cannot set property query of #<IncomingMessage> which has only a getter`. Use another property, like `req.validatedQuery`.
+
+---
+
+### Mistake 15
+
+`schema.validate(req.body)` without `|| {}`.
+
+Joi accepts `undefined`: there is nothing to check. A request without a JSON body passes, and the next line, `const { email, password } = req.body;`, crashes with `TypeError: Cannot destructure property 'email' of 'req.body' as it is undefined.` The client gets a 500 instead of a 400.
+
+---
+
 ## Practice Exercises
 
 ### Exercise 1
@@ -1069,6 +1623,14 @@ Write a validator `validateAge(age)` that accepts whole numbers from 18 to 60 on
 ### Exercise 6
 
 Find every place in the project that reads `process.env`. There should be only one. Then move the file `src/utils/logger.js` to `src/logger.js` and fix everything that breaks
+
+### Exercise 7
+
+Write Joi rules for the Course resource from Exercise 1: `createCourseSchema` (title required; credits a whole number from 1 to 10) and `updateCourseSchema` (at least one field). Use them in `courseRoutes.js` and test `{ "credits": 11 }`, `{ "credits": "3" }` and `{}`
+
+### Exercise 8
+
+Add `?page` and `?limit` to `GET /api/students` with a query schema and `validate(schema, "query")`. Read the values from `req.validatedQuery`, and test `?page=abc` and `?limit=500`
 
 ---
 
@@ -1117,3 +1679,19 @@ Errors should go through the error middleware, so they are logged, have the same
 ### What naming conventions are common in Node.js projects
 
 camelCase for files, variables, functions and document fields; PascalCase for models and classes; UPPER_SNAKE_CASE for constants; plural lowercase nouns for URLs and collections
+
+### Why validate requests with Joi when Mongoose already validates
+
+Mongoose only checks data that is saved, with one set of rules for the whole model. Joi checks every request before the controller runs, also logins and query strings, with different rules for each route. Mongoose stays as the last check, for example for a unique email or for data from scripts
+
+### Where should request validation happen
+
+In a middleware before the controller, like validate(schema) in the route. A bad request gets a 400 before any work is done, and controllers receive clean data
+
+### What do abortEarly and stripUnknown do in Joi
+
+abortEarly: false reports every problem instead of only the first one. stripUnknown: true removes the keys the schema does not list, so a client cannot send fields like role or createdAt
+
+### Why can you not assign to req.query in Express 5
+
+req.query is a getter that reads the URL each time it is used. Assigning to it is ignored, or throws a TypeError in strict mode, so the checked query values go into another property, like req.validatedQuery

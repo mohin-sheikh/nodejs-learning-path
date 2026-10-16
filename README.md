@@ -141,7 +141,7 @@ Plan for **1 to 2 hours per session**. At one session a day, with time for pract
 | 26 | [Logging](26-logging.md)                                                        | Useful logs with winston and morgan                |
 | 27 | [API Documentation](27-api-documentation.md)                                    | Interactive docs with Swagger                      |
 | 28 | [Testing APIs](28-testing-apis.md)                                              | Automated tests with Jest and Supertest            |
-| 29 | [Project Structure Best Practices](29-project-structure-best-practices.md)      | A clean folder layout that grows with your app     |
+| 29 | [Project Structure Best Practices](29-project-structure-best-practices.md)      | A clean folder layout, and request validation with Joi |
 
 ### Part 8: Final Project
 
@@ -169,6 +169,7 @@ Users can
 The project also has
 
 * Password hashing, login tokens and user roles
+* Request validation with Joi on every route that receives data
 * Central error handling and logging
 * Interactive API documentation at `/api-docs`
 * 31 automated tests
@@ -189,6 +190,7 @@ The project also has
 | winston, morgan                             | Logging                   | 26      |
 | swagger-jsdoc, swagger-ui-express           | API documentation         | 27      |
 | Jest, Supertest, mongodb-memory-server      | Testing                   | 28      |
+| Joi                                         | Checking request data     | 29, 30  |
 | helmet, cors, express-rate-limit            | Security                  | 14, 29  |
 
 All code was tested with Node.js 24, Express 5 and Mongoose 9.
@@ -203,7 +205,7 @@ After this course you will be able to
 * Build REST APIs with Express
 * Store and query data in MongoDB
 * Add sign-up, login and user roles
-* Handle errors, file uploads and logging the right way
+* Validate request data, and handle errors, file uploads and logging the right way
 * Document and test your APIs
 * Organize a project the way professional teams do
 

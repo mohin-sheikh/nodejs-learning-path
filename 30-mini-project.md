@@ -85,7 +85,7 @@ Technical requirements
 | MVC structure in `src/`             | Session 29                                            |
 | One config file                     | `src/config/index.js` (Sessions 16 and 29)            |
 | Central error handling              | AppError + errorMiddleware (Session 24)               |
-| Validation                          | Mongoose rules + a few checks in controllers          |
+| Validation                          | Joi before the controllers, Mongoose when saving (Session 29) |
 | Logging with request ids            | winston + morgan (Session 26)                         |
 | API documentation                   | Swagger UI at `/api-docs` (Session 27)                |
 | Automated tests                     | 31 tests with Jest and Supertest (Session 28)         |
@@ -109,7 +109,7 @@ Technical requirements
 | Pagination and pickFields                | 20               |
 | Swagger docs with Authorize              | 27               |
 | tests/db.js with the in-memory MongoDB   | 28               |
-| responseHelper, validators               | 29               |
+| responseHelper, validate() with Joi      | 29               |
 
 Thirteen files are copied from Sessions 28 and 29 **without any change**: they do not know whether the app is about students or tasks. That is the reward of a good structure.
 
@@ -135,7 +135,8 @@ task-management-api/
 │   │   ├── errorMiddleware.js    from Session 29
 │   │   ├── requestId.js          from Session 29
 │   │   ├── requestLogger.js      from Session 29
-│   │   └── upload.js             from Session 29
+│   │   ├── upload.js             from Session 29
+│   │   └── validate.js           from Session 29
 │   ├── models/
 │   │   ├── Task.js               new
 │   │   └── User.js               Session 23 + avatar
@@ -150,8 +151,11 @@ task-management-api/
 │   │   ├── AppError.js           from Session 29
 │   │   ├── checkImage.js         from Session 29
 │   │   ├── logger.js             from Session 29
-│   │   ├── responseHelper.js     from Session 29
-│   │   └── validators.js         from Session 29
+│   │   └── responseHelper.js     from Session 29
+│   ├── validations/
+│   │   ├── authValidation.js     new: Joi rules
+│   │   ├── taskValidation.js     new
+│   │   └── userValidation.js     new
 │   └── app.js                    from Session 29
 ├── scripts/
 │   ├── make-admin.js             Session 22
@@ -180,12 +184,12 @@ task-management-api/
 mkdir task-management-api
 cd task-management-api
 npm init -y
-npm install express mongoose dotenv bcryptjs jsonwebtoken multer winston morgan
+npm install express mongoose dotenv bcryptjs jsonwebtoken multer winston morgan joi
 npm install helmet cors express-rate-limit swagger-ui-express swagger-jsdoc
 npm install --save-dev jest supertest mongodb-memory-server
 ```
 
-Tested versions: express 5.3.0, mongoose 9.11.1, jsonwebtoken 9.0.3, bcryptjs 3.0.3, multer 2.4.0, winston 3.19.0, jest 30.5.2.
+Tested versions: express 5.3.0, mongoose 9.11.2, joi 18.2.9, jsonwebtoken 9.0.3, bcryptjs 3.0.3, multer 2.4.0, winston 3.19.0, jest 30.5.2.
 
 package.json scripts
 
@@ -428,19 +432,18 @@ Copy these from Session 29 without changes
 | `src/utils/logger.js`         | winston logger, reads config (Sessions 26 and 29) |
 | `src/utils/checkImage.js`     | Checks the first bytes of an image (Session 25)   |
 | `src/utils/responseHelper.js` | `success()` and `created()` (Session 29)          |
-| `src/utils/validators.js`     | `validateEmail()` and friends (Session 29)        |
 
 Every successful answer of this API has the shape of `responseHelper`: `{ "success": true, "message": "...", "data": ... }`. Every error has the shape of errorMiddleware: `{ "success": false, "status": "fail", "message": "..." }`.
 
-No `catchAsync`: Express 5 catches errors of `async` handlers by itself (Session 24).
+No `catchAsync`: Express 5 catches errors of `async` handlers by itself (Session 24). No `validators.js` either: the Joi rules in Step 4 check every request.
 
 ---
 
 ## Step 4 - Middleware
 
-Copy from Session 29 without changes: `errorMiddleware.js`, `requestId.js`, `requestLogger.js`, `upload.js`.
+Copy from Session 29 without changes: `errorMiddleware.js`, `requestId.js`, `requestLogger.js`, `upload.js`, `validate.js`.
 
-errorMiddleware already knows every error this project can throw: validation (400), bad id (400), duplicate email (409), bad or expired token (401), files that are too large (413).
+errorMiddleware already knows every error this project can throw: validation from Joi and Mongoose (400), bad id (400), duplicate email (409), bad or expired token (401), files that are too large (413).
 
 src/middleware/auth.js: protect and authorize from Sessions 22 and 23, now throwing AppError
 
@@ -502,6 +505,134 @@ module.exports = { protect, authorize };
 
 There is no try/catch around `jwt.verify()` anymore. It throws `JsonWebTokenError` or `TokenExpiredError`, and errorMiddleware turns both into a clear 401 (Session 24). The code is shorter and the messages are the same.
 
+### Validation Rules
+
+`validate()` from Session 29 checks every request that sends data, before the controller runs. Its rules live in `src/validations/`, one file per resource. They follow the models, so Joi and Mongoose agree.
+
+src/validations/authValidation.js
+
+```javascript
+const Joi = require("joi");
+
+// Joi.string() refuses objects like { "$gt": "" } (NoSQL injection, Session 22)
+const email = Joi.string().trim().lowercase().email();
+
+// 6 to 72 characters: bcrypt only uses the first 72 bytes (Session 23)
+const password = Joi.string().min(6).max(72);
+
+// POST /api/auth/register. A "role" in the body is dropped (Session 22)
+const registerSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(50).required(),
+  email: email.required(),
+  password: password.required()
+});
+
+// POST /api/auth/login: only the shape. A wrong password is a 401, not a 400
+const loginSchema = Joi.object({
+  email: email.required(),
+  password: Joi.string().required()
+});
+
+// PATCH /api/auth/password
+const changePasswordSchema = Joi.object({
+  currentPassword: Joi.string().required(),
+  newPassword: password.required()
+});
+
+module.exports = { registerSchema, loginSchema, changePasswordSchema };
+```
+
+src/validations/taskValidation.js
+
+```javascript
+const Joi = require("joi");
+const TASK_STATUSES = require("../constants/taskStatuses");
+
+// The rules for each field, written once (the same rules as models/Task.js)
+const title = Joi.string().trim().max(100);
+const description = Joi.string().trim().max(1000).allow(""); // "" clears it
+const status = Joi.string().valid(...TASK_STATUSES);
+const dueDate = Joi.date().allow(null); // null removes the due date
+
+// POST /api/tasks. A "user" in the body is dropped: the owner comes from the token
+const createTaskSchema = Joi.object({
+  title: title.required(),
+  description,
+  status,
+  dueDate
+});
+
+// PATCH /api/tasks/:id: any of the fields, but at least one
+const updateTaskSchema = Joi.object({ title, description, status, dueDate })
+  .min(1)
+  .messages({ "object.min": "Send at least one field to update" });
+
+// GET /api/tasks?status=pending&page=1&limit=10
+const taskQuerySchema = Joi.object({
+  status,
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10)
+});
+
+module.exports = { createTaskSchema, updateTaskSchema, taskQuerySchema };
+```
+
+src/validations/userValidation.js
+
+```javascript
+const Joi = require("joi");
+
+// PATCH /api/users/me: name or email. Passwords use PATCH /api/auth/password
+const updateMeSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(50),
+  email: Joi.string().trim().lowercase().email()
+})
+  .min(1)
+  .messages({ "object.min": "Send at least one field to update" });
+
+module.exports = { updateMeSchema };
+```
+
+| Rule                                          | Why                                                       |
+| --------------------------------------------- | --------------------------------------------------------- |
+| `Joi.string()` for the email and password     | An object like `{ "$gt": "" }` gets a 400 before any query (NoSQL injection, Session 22) |
+| `password`: 6 to 72 characters                | bcrypt only uses the first 72 bytes (Session 23)          |
+| `loginSchema` only checks the shape           | A wrong password, short or long, is always `401 Invalid email or password` |
+| No `role` and no `user` in any schema         | `stripUnknown` drops them: nobody registers as admin (Session 22) or creates a task for someone else |
+| `description` allows `""`, `dueDate` allows `null` | A PATCH can clear them                                 |
+| `taskQuerySchema`                             | `page` and `limit` arrive as numbers, 1 and 10 when missing, `limit` at most 100 |
+
+`POST /api/tasks` with `{ "title": "", "status": "done", "dueDate": "next Friday", "user": "6acb1f0e8c1d2a0012345678" }`, in development mode (stack not shown here)
+
+```text
+{
+  "success": false,
+  "status": "fail",
+  "message": "Validation failed",
+  "errors": [
+    "title is not allowed to be empty",
+    "status must be one of [pending, in-progress, completed]",
+    "dueDate must be a valid date"
+  ],
+  ...
+}
+```
+
+Every problem at once, and the `user` field was dropped without a word. `GET /api/tasks?page=abc&limit=500`
+
+```text
+{
+  "success": false,
+  "status": "fail",
+  "message": "Validation failed",
+  "errors": [
+    "page must be a number",
+    "limit must be less than or equal to 100"
+  ],
+  ...
+}
+```
+
 ---
 
 ## Step 5 - Services
@@ -548,7 +679,6 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const AppError = require("../utils/AppError");
 const ResponseHelper = require("../utils/responseHelper");
-const { validateEmail } = require("../utils/validators");
 const logger = require("../utils/logger");
 const config = require("../config");
 
@@ -564,10 +694,10 @@ function publicUser(user) {
 
 // POST /api/auth/register
 const register = async (req, res) => {
-  const { name, email, password } = req.body || {};
+  // Checked by validate(registerSchema): no role in here, everyone is a normal user (Session 22).
+  // A used email → 409 in errorMiddleware
+  const { name, email, password } = req.body;
 
-  // role is NOT taken from the body: everyone who registers is a normal user (Session 22).
-  // Bad input → ValidationError 400, used email → 409, both in errorMiddleware
   const user = await User.create({ name, email, password });
 
   logger.info("User registered", { requestId: req.id, userId: user._id });
@@ -577,14 +707,10 @@ const register = async (req, res) => {
 
 // POST /api/auth/login
 const login = async (req, res) => {
-  const { email, password } = req.body || {};
+  // Checked by validate(loginSchema): two strings, the email already in lowercase
+  const { email, password } = req.body;
 
-  // Text only: an object like { "$gt": "" } is refused here (NoSQL injection, Session 22)
-  if (!validateEmail(email) || typeof password !== "string") {
-    throw new AppError("Please provide an email and a password", 400);
-  }
-
-  const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+  const user = await User.findOne({ email }).select("+password");
 
   // Same message for "no such email" and "wrong password"
   if (!user || !(await user.comparePassword(password))) {
@@ -606,11 +732,7 @@ const getMe = (req, res) => {
 
 // PATCH /api/auth/password (protected, Session 23)
 const changePassword = async (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-
-  if (typeof currentPassword !== "string" || typeof newPassword !== "string") {
-    throw new AppError("Please provide currentPassword and newPassword", 400);
-  }
+  const { currentPassword, newPassword } = req.body; // checked by validate(changePasswordSchema)
 
   // req.user was loaded without the password (select: false)
   const user = await User.findById(req.user._id).select("+password");
@@ -634,7 +756,7 @@ module.exports = { register, login, getMe, changePassword, publicUser };
 | ------------------------------------------- | ------- | ------------------------------------------------ |
 | `role` is never read from the body          | 22      | Nobody can register as admin                     |
 | No `findOne()` before `create()`            | 22      | The unique index answers 409 for a used email, even when two requests arrive at the same moment |
-| `validateEmail(email)`, `typeof password`   | 22, 29  | An object like `{ "$gt": "" }` cannot reach the query (NoSQL injection) |
+| `validate(loginSchema)` in the route        | 22, 29  | An object like `{ "$gt": "" }` gets 400 before the query (NoSQL injection) |
 | Same message for wrong email and password   | 22      | Attackers cannot test which emails exist         |
 | `logger.warn("Failed login", ...)`          | 26      | Many failed logins can mean an attack            |
 | `{ id, v }` in the token                    | 23      | `v` is the password version, checked by protect  |
@@ -648,31 +770,15 @@ const AppError = require("../utils/AppError");
 const ResponseHelper = require("../utils/responseHelper");
 const TASK_STATUSES = require("../constants/taskStatuses");
 
-// Copy only the fields a client may set. The owner always comes from the token (Session 20)
-function pickFields(body) {
-  const data = {};
-  for (const key of ["title", "description", "status", "dueDate"]) {
-    if (body[key] !== undefined) {
-      data[key] = body[key];
-    }
-  }
-  return data;
-}
-
 // GET /api/tasks?status=pending&page=1&limit=10
 const getTasks = async (req, res) => {
+  // Checked by validate(taskQuerySchema, "query"): a known status, page and limit are numbers
+  const { status, page, limit } = req.validatedQuery;
+
   const filter = { user: req.user._id }; // only my tasks
-
-  if (req.query.status !== undefined) {
-    if (!TASK_STATUSES.includes(req.query.status)) {
-      throw new AppError(`status must be one of: ${TASK_STATUSES.join(", ")}`, 400);
-    }
-    filter.status = req.query.status;
+  if (status) {
+    filter.status = status;
   }
-
-  // Pagination (Session 20): page 1 by default, at most 100 per page
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
 
   const tasks = await Task.find(filter)
     .sort({ createdAt: -1, _id: -1 }) // newest first; _id breaks ties
@@ -704,7 +810,8 @@ const getStats = async (req, res) => {
 
 // POST /api/tasks
 const createTask = async (req, res) => {
-  const task = await Task.create({ ...pickFields(req.body || {}), user: req.user._id });
+  // req.body has only title, description, status and dueDate (validate). The owner comes from the token
+  const task = await Task.create({ ...req.body, user: req.user._id });
   ResponseHelper.created(res, task, "Task created");
 };
 
@@ -724,7 +831,7 @@ const getTask = async (req, res) => {
 const updateTask = async (req, res) => {
   const task = await Task.findOneAndUpdate(
     { _id: req.params.id, user: req.user._id },
-    pickFields(req.body || {}),
+    req.body, // checked by validate(updateTaskSchema)
     { returnDocument: "after", runValidators: true } // Session 19
   );
 
@@ -758,18 +865,18 @@ The most important line of this file: **every query includes `user: req.user._id
 | `Task.findById(id)`                                   | Any task, of anyone: **wrong**                    |
 | `Task.findOne({ _id: id, user: req.user._id })`       | This task, only if it is mine                     |
 
-Why 404 and not 403 for someone else's task? A 403 would tell Ben that the task exists. 404 tells him nothing.
+Why 404 and not 403 for someone else's task? A 403 would tell Ben that the task exists. A 404 tells Ben nothing.
 
 ![A task moves from pending to in-progress to completed; the status "done" is refused with 400](images/30-mini-project/task-status.gif)
 
-`runValidators: true` matters here: we tested the original version's status update without it, and `{ "status": "done" }` was saved in the database, although `done` is not in the list.
+`{ "status": "done" }` gets a 400 from `validate(updateTaskSchema)` before the controller runs. `runValidators: true` still matters as the second check: we tested the original version's status update without it, and `done` was saved in the database, although it is not in the list.
 
 ![Twelve tasks, newest first; page 2 with 5 per page shows tasks 7 to 3](images/30-mini-project/pagination.gif)
 
 | Pagination part                          | Why                                                    |
 | ---------------------------------------- | ------------------------------------------------------ |
-| `parseInt(...) \|\| 1`                   | `?page=abc` becomes page 1 instead of an error         |
-| `Math.min(100, ...)`                     | Nobody can ask for a million tasks at once             |
+| `taskQuerySchema` (Joi)                  | `page` and `limit` arrive as numbers; `?page=abc` gets 400 |
+| `.max(100)` on `limit`                   | Nobody can ask for a million tasks at once             |
 | `.sort({ createdAt: -1, _id: -1 })`      | `_id` decides between tasks created in the same millisecond (Session 20) |
 | `totalPages`                             | The frontend can show "page 2 of 3"                    |
 
@@ -777,7 +884,7 @@ Why 404 and not 403 for someone else's task? A 403 would tell Ben that the task 
 
 `getStats` uses only `countDocuments()`. `{ status: { $ne: "completed" }, dueDate: { $lt: new Date() } }` means "not completed, and the due date is before now" (Session 18).
 
-Express 5 reads `?status[$ne]=pending` as the text key `"status[$ne]"`, not as an object (we tested it), and the status check refuses anything not in the list anyway.
+Express 5 reads `?status[$ne]=pending` as the text key `"status[$ne]"`, not as an object, and `taskQuerySchema` drops that unknown key, so the filter does not change (we tested both).
 
 src/controllers/userController.js
 
@@ -798,14 +905,8 @@ const getUsers = async (req, res) => {
 
 // PATCH /api/users/me: change name or email. Passwords use PATCH /api/auth/password
 const updateMe = async (req, res) => {
-  const data = {};
-  for (const key of ["name", "email"]) {
-    if (req.body && req.body[key] !== undefined) {
-      data[key] = req.body[key];
-    }
-  }
-
-  const user = await User.findByIdAndUpdate(req.user._id, data, {
+  // req.body has only name and/or email: validate(updateMeSchema) dropped everything else
+  const user = await User.findByIdAndUpdate(req.user._id, req.body, {
     returnDocument: "after",
     runValidators: true
   });
@@ -858,7 +959,7 @@ module.exports = { getUsers, updateMe, setAvatar, deleteMe };
 
 | Function     | Notes                                                       |
 | ------------ | ----------------------------------------------------------- |
-| `updateMe`   | Only `name` and `email`. A `password` in the body is ignored: passwords change through `/api/auth/password`, which hashes them |
+| `updateMe`   | Only `name` and `email` (`updateMeSchema`). A `password` in the body is dropped: passwords change through `/api/auth/password`, which hashes them |
 | `setAvatar`  | Session 25's checks: our own file names and extensions, the size limit, the real first bytes, and the old picture is deleted |
 | `deleteMe`   | Tasks first, then the picture, then the user: nothing is left behind |
 | `getUsers`   | `users.map(publicUser)`: never send password hashes or token versions |
@@ -897,6 +998,8 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const { register, login, getMe, changePassword } = require("../controllers/authController");
 const { protect } = require("../middleware/auth");
+const validate = require("../middleware/validate");
+const { registerSchema, loginSchema, changePasswordSchema } = require("../validations/authValidation");
 
 const router = express.Router();
 
@@ -939,7 +1042,7 @@ const loginLimiter = rateLimit({
  *       409:
  *         $ref: '#/components/responses/Conflict'
  */
-router.post("/register", register);
+router.post("/register", validate(registerSchema), register);
 
 /**
  * @openapi
@@ -970,7 +1073,7 @@ router.post("/register", register);
  *       429:
  *         description: Too many login attempts
  */
-router.post("/login", loginLimiter, login);
+router.post("/login", loginLimiter, validate(loginSchema), login);
 
 /**
  * @openapi
@@ -1008,12 +1111,12 @@ router.post("/login", loginLimiter, login);
  *         description: Current password is wrong
  */
 router.get("/me", protect, getMe);
-router.patch("/password", protect, changePassword);
+router.patch("/password", protect, validate(changePasswordSchema), changePassword);
 
 module.exports = router;
 ```
 
-`loginLimiter` allows 10 logins in 15 minutes per user. Someone guessing passwords gets `429 Too many login attempts, try again in 15 minutes` (tested). Register and the other routes still use the general limit from app.js (100 per 15 minutes).
+`loginLimiter` allows 10 logins in 15 minutes per user. Someone guessing passwords gets `429 Too many login attempts, try again in 15 minutes` (tested). Register and the other routes still use the general limit from app.js (100 per 15 minutes). `loginLimiter` runs before `validate()`, so tries with a bad body count too.
 
 src/routes/taskRoutes.js
 
@@ -1028,6 +1131,8 @@ const {
   deleteTask
 } = require("../controllers/taskController");
 const { protect } = require("../middleware/auth");
+const validate = require("../middleware/validate");
+const { createTaskSchema, updateTaskSchema, taskQuerySchema } = require("../validations/taskValidation");
 
 const router = express.Router();
 
@@ -1086,8 +1191,8 @@ router.use(protect);
  *         $ref: '#/components/responses/Unauthorized'
  */
 router.route("/")
-  .get(getTasks)
-  .post(createTask);
+  .get(validate(taskQuerySchema, "query"), getTasks)
+  .post(validate(createTaskSchema), createTask);
 
 /**
  * @openapi
@@ -1143,7 +1248,7 @@ router.get("/stats", getStats); // before /:id, or "stats" would be read as an i
  */
 router.route("/:id")
   .get(getTask)
-  .patch(updateTask)
+  .patch(validate(updateTaskSchema), updateTask)
   .delete(deleteTask);
 
 module.exports = router;
@@ -1158,6 +1263,8 @@ const express = require("express");
 const { getUsers, updateMe, setAvatar, deleteMe } = require("../controllers/userController");
 const { protect, authorize } = require("../middleware/auth");
 const { avatarUpload } = require("../middleware/upload");
+const validate = require("../middleware/validate");
+const { updateMeSchema } = require("../validations/userValidation");
 
 const router = express.Router();
 
@@ -1229,7 +1336,7 @@ router.use(protect);
 router.get("/", authorize("admin"), getUsers);
 
 router.route("/me")
-  .patch(updateMe)
+  .patch(validate(updateMeSchema), updateMe)
   .delete(deleteMe);
 
 router.patch("/me/avatar", avatarUpload.single("avatar"), setAvatar);
@@ -1391,7 +1498,7 @@ No user with email nobody@example.com
 
 ## Step 9 - Testing
 
-Copy `tests/db.js` from Session 28 (with the `runtimeAdapters` line) and the two unit tests from Session 29 into `tests/unit/` (change the requires to `../../src/...`).
+Copy `tests/db.js` from Session 28 (with the `runtimeAdapters` line) and the two unit tests from Session 29, `responseHelper.test.js` and `validate.test.js`, into `tests/unit/` (change the requires to `../../src/...`).
 
 tests/helpers.js
 
@@ -1456,7 +1563,7 @@ describe("POST /api/auth/register", () => {
       .send({ name: "Sara", email: "sara@example.com", password: "123" });
 
     expect(res.status).toBe(400);
-    expect(res.body.errors).toContain("Password must be at least 6 characters");
+    expect(res.body.errors).toEqual(["password length must be at least 6 characters long"]);
   });
 });
 
@@ -1491,6 +1598,7 @@ describe("POST /api/auth/login", () => {
       .send({ email: { $gt: "" }, password: "MySecret123" });
 
     expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(["email must be a string"]);
   });
 });
 
@@ -1580,8 +1688,8 @@ describe("POST /api/tasks", () => {
     const badDate = await createTask({ title: "Report", dueDate: "next Friday" });
 
     expect(noTitle.status).toBe(400);
-    expect(noTitle.body.errors).toEqual(["Title is required"]);
-    expect(badDate.body.errors).toEqual(["Due date must be a valid date"]);
+    expect(noTitle.body.errors).toEqual(["title is required"]);
+    expect(badDate.body.errors).toEqual(["dueDate must be a valid date"]);
   });
 
   test("answers 401 without a token", async () => {
@@ -1624,7 +1732,14 @@ describe("GET /api/tasks", () => {
 
     expect(done.body.data.total).toBe(1);
     expect(bad.status).toBe(400);
-    expect(bad.body.message).toBe("status must be one of: pending, in-progress, completed");
+    expect(bad.body.errors).toEqual(["status must be one of [pending, in-progress, completed]"]);
+  });
+
+  test("refuses a page or limit that is not a sensible number", async () => {
+    const res = await request(app).get("/api/tasks?page=abc&limit=500").set(auth());
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(["page must be a number", "limit must be less than or equal to 100"]);
   });
 });
 
@@ -1651,7 +1766,7 @@ describe("one task", () => {
     expect(done.status).toBe(200);
     expect(done.body.data.status).toBe("completed");
     expect(bad.status).toBe(400);
-    expect(bad.body.errors).toEqual(["Status must be pending, in-progress or completed"]);
+    expect(bad.body.errors).toEqual(["status must be one of [pending, in-progress, completed]"]);
   });
 
   test("delete a task", async () => {
@@ -1772,7 +1887,7 @@ test("GET /api/users is for admins only", async () => {
 | Test file          | Protects                                                         |
 | ------------------ | ---------------------------------------------------------------- |
 | auth.test.js       | Hashing, no admin by register, 409, NoSQL injection, old tokens after a password change, the login limiter |
-| tasks.test.js      | Ownership (Ben gets 404 three times), pagination, status rules, stats |
+| tasks.test.js      | Ownership (Ben gets 404 three times), pagination, status rules, Joi's query checks, stats |
 | users.test.js      | No password change through the profile, picture replace and cleanup, account deletion, admin only list |
 
 Run them
@@ -1789,53 +1904,53 @@ PASS tests/unit/responseHelper.test.js
   √ success sends 200 with the standard shape (7 ms)
   √ created sends 201 (1 ms)
 
-PASS tests/unit/validators.test.js
-  √ validateEmail (4 ms)
-  √ validateEmail stays fast on long input (no ReDoS)
-  √ validatePassword
-  √ validateObjectId (1 ms)
-  √ validateDate
+PASS tests/unit/validate.test.js
+  √ passes the clean values on in req.body (12 ms)
+  √ sends every problem to the error middleware (3 ms)
+  √ a missing body counts as an empty one (1 ms)
+  √ checked query values go to req.validatedQuery (2 ms)
 
 PASS tests/integration/users.test.js
-  √ PATCH /api/users/me changes the name, but never the password (249 ms)
-  √ avatar: upload, replace (the old file is deleted), and refuse a fake image (134 ms)
-  √ DELETE /api/users/me deletes the account, its tasks and its picture (118 ms)
-  √ GET /api/users is for admins only (185 ms)
+  √ PATCH /api/users/me changes the name, but never the password (275 ms)
+  √ avatar: upload, replace (the old file is deleted), and refuse a fake image (152 ms)
+  √ DELETE /api/users/me deletes the account, its tasks and its picture (134 ms)
+  √ GET /api/users is for admins only (197 ms)
 
 PASS tests/integration/auth.test.js
-  √ too many logins answer 429 (43 ms)
+  √ too many logins answer 429 (53 ms)
   POST /api/auth/register
-    √ creates a normal user and returns a token (161 ms)
-    √ answers 409 for an email that is already used (167 ms)
-    √ answers 400 for a short password (7 ms)
+    √ creates a normal user and returns a token (170 ms)
+    √ answers 409 for an email that is already used (185 ms)
+    √ answers 400 for a short password (10 ms)
   POST /api/auth/login
-    √ returns a token for the right password (162 ms)
-    √ answers 401 for a wrong password (171 ms)
-    √ refuses an object instead of an email (NoSQL injection) (91 ms)
+    √ returns a token for the right password (185 ms)
+    √ answers 401 for a wrong password (181 ms)
+    √ refuses an object instead of an email (NoSQL injection) (101 ms)
   protected routes
-    √ GET /api/auth/me works with a token (86 ms)
-    √ answers 401 without a token, or with a fake one (10 ms)
-    √ after a password change, the old token stops working (232 ms)
+    √ GET /api/auth/me works with a token (92 ms)
+    √ answers 401 without a token, or with a fake one (13 ms)
+    √ after a password change, the old token stops working (262 ms)
 
 PASS tests/integration/tasks.test.js
-  √ GET /api/tasks/stats counts my tasks (105 ms)
+  √ GET /api/tasks/stats counts my tasks (111 ms)
   POST /api/tasks
-    √ creates a task for the logged-in user (170 ms)
-    √ answers 400 without a title or with a bad date (108 ms)
-    √ answers 401 without a token (86 ms)
+    √ creates a task for the logged-in user (186 ms)
+    √ answers 400 without a title or with a bad date (109 ms)
+    √ answers 401 without a token (102 ms)
   GET /api/tasks
-    √ shows only my own tasks (188 ms)
-    √ pages: 12 tasks, page 2 with 5 per page (166 ms)
-    √ filters by status, and refuses an unknown status (102 ms)
+    √ shows only my own tasks (213 ms)
+    √ pages: 12 tasks, page 2 with 5 per page (207 ms)
+    √ filters by status, and refuses an unknown status (116 ms)
+    √ refuses a page or limit that is not a sensible number (88 ms)
   one task
-    √ another user's task is not found (175 ms)
-    √ mark a task completed, and refuse an unknown status (90 ms)
-    √ delete a task (101 ms)
+    √ another user's task is not found (205 ms)
+    √ mark a task completed, and refuse an unknown status (100 ms)
+    √ delete a task (97 ms)
 
 Test Suites: 5 passed, 5 total
 Tests:       31 passed, 31 total
 Snapshots:   0 total
-Time:        3.806 s, estimated 4 s
+Time:        4.414 s
 Ran all test suites.
 ```
 
@@ -1922,7 +2037,7 @@ async function main() {
   show("Create a task without a title", await send("POST", "/tasks", { description: "?" }, token));
 
   const list = await send("GET", "/tasks?limit=2", null, token);
-  show("Sara lists her tasks (2 per page)", list, `${list.body.data.tasks.length} of ${list.body.data.total}, ${list.body.data.totalPages} pages`);
+  show("List Sara's tasks (2 per page)", list, `${list.body.data.tasks.length} of ${list.body.data.total}, ${list.body.data.totalPages} pages`);
 
   const done = await send("PATCH", `/tasks/${t1.body.data._id}`, { status: "completed" }, token);
   show("Mark the report completed", done, done.body.data.status);
@@ -1951,7 +2066,7 @@ Register Ben                         201  ben@example.com
 Login with a wrong password          401  Invalid email or password
 Sara creates a task                  201  Write the report (pending)
 Create a task without a title        400  Validation failed
-Sara lists her tasks (2 per page)    200  2 of 3, 2 pages
+List Sara's tasks (2 per page)       200  2 of 3, 2 pages
 Mark the report completed            200  completed
 Ben reads Sara's task                404  Task not found
 No token                             401  Not logged in. Please send a token.
@@ -2032,9 +2147,10 @@ What each status code means in this API
 | Deleted or deactivated users are locked out    | `protect`                     | 22      |
 | Roles cannot be chosen by the client           | `register`                    | 22      |
 | Users see only their own tasks                 | `user: req.user._id` in every query | 30 |
-| Only allowed fields are saved                  | `pickFields`                  | 20      |
-| Text only in login (no NoSQL injection)        | `validateEmail`, `typeof`     | 22      |
-| No slow regular expressions (ReDoS)            | `validators.js`               | 20, 29  |
+| Every request is checked before the controller | `validate()` with Joi         | 29      |
+| Only allowed fields are saved                  | Joi's `stripUnknown`          | 20, 29  |
+| Text only in login (no NoSQL injection)        | `Joi.string()` in loginSchema | 22, 29  |
+| No slow regular expressions (ReDoS)            | Joi's `.email()`, the simple regex in User | 20, 29  |
 | Uploads: size limit, own names, real image check, nosniff | upload.js, checkImage.js, app.js | 25 |
 | Login brute force slowed down                  | `loginLimiter`                | 14      |
 | Security headers, CORS, rate limit             | app.js                        | 14      |
@@ -2066,7 +2182,7 @@ The first version of this lesson would not have run. Everything below was tested
 | Original                                       | What really happened                                    |
 | ---------------------------------------------- | ------------------------------------------------------- |
 | `pre("save", async function (next) { ... next() })` | Every registration crashed: `TypeError: next is not a function` (Mongoose 9) |
-| `require("express-validator")`, `require("nodemailer")`, `require("validator")` | `Cannot find module`: none of them was in the install commands, and the course never teaches them |
+| `require("express-validator")`, `require("nodemailer")`, `require("validator")` | `Cannot find module`: none of them was in the install commands, and the course never teaches them. This version validates with Joi (Session 29) |
 | `app.all("*", ...)` for the 404                | Express 5 crashes at startup (Sessions 12 and 29)       |
 | `mongoose.connect(\`${MONGODB_URI}/${DB_NAME}\`)` | With the original URI ending in `/`, the data went to a database called `"/task_manager"`; with an Atlas URI with options, to `"test"` |
 | Status update without `runValidators`          | `{ "status": "done" }` was saved                         |
@@ -2114,7 +2230,7 @@ Deploy the API: MongoDB Atlas plus a hosting platform (Render, Railway, or simil
 
 ### Walk me through a request to POST /api/tasks
 
-helmet, cors and the rate limiter run first, then the request id and the request logger, then express.json. The router sends it to taskRoutes, protect checks the token and loads the user, createTask copies the allowed fields, sets the owner from the token and calls Task.create. Mongoose validates and saves, and responseHelper sends 201. If anything throws, errorMiddleware sends the error answer
+helmet, cors and the rate limiter run first, then the request id and the request logger, then express.json. The router sends it to taskRoutes, protect checks the token and loads the user, validate(createTaskSchema) checks the body and drops unknown fields, createTask sets the owner from the token and calls Task.create. Mongoose validates and saves, and responseHelper sends 201. If anything throws, errorMiddleware sends the error answer
 
 ### How do you make sure users only see their own tasks
 
@@ -2138,7 +2254,7 @@ Their tasks are deleted, their picture file is deleted, then the user. Their tok
 
 ### Why are there unit tests and integration tests
 
-Unit tests check small helpers like validators quickly and alone. Integration tests send real requests through the whole app with a real (in-memory) database
+Unit tests check small pieces like responseHelper and validate() quickly and alone. Integration tests send real requests through the whole app with a real (in-memory) database
 
 ### Why does the login route have its own rate limiter
 
@@ -2147,6 +2263,10 @@ To make password guessing very slow: 10 tries per 15 minutes instead of the gene
 ### Why does the structure from Session 29 pay off here
 
 Thirteen files were copied without any change, because config, logging, errors and uploads do not depend on what the app is about
+
+### What happens to fields that are not in a Joi schema
+
+validate() uses stripUnknown, so they are removed before the controller runs. That is why a user field in POST /api/tasks or a role in POST /api/auth/register changes nothing
 
 ### What would you add before a real launch
 
